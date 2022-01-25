@@ -2,3 +2,4 @@ tls.cert
 admin.macaroon
 /node_modules
 */googleapis
+config.json
