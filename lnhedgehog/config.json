@@ -1,0 +1,22 @@
+{
+	"kollider": {
+		"api_key": "RB973N4VCbhqkHf1r68lQg==",
+		"api_secret": "iDdx0g4KizYtM9QYn5H0ZWZnRqtg00OkNLr6MCYCaGU=",
+		"api_passphrase": "passphrase",
+		"ws_url": "ws://api.staging.kollider.internal/v1/ws/"
+	},
+	"lnd": {
+		"node_url": "10.0.1.249:10009",
+		"admin_macaroon_path": "admin.macaroon",
+		"tls_path": "tls.cert"
+	},
+	"hedge_proportion": 0.0025,
+	"hedge_side": "Bid",
+	"target_base_currency": "BTC",
+	"target_fiat_currency": "USD",
+	"target_index_symbol": ".BTCUSD",
+	"target_symbol": "BTCUSD.PERP",
+	"target_leverage": 1000,
+	"cycle_speed": 5,
+	"order_type": "Market"
+}
