@@ -1,0 +1,7 @@
+{
+	"ws_server_port": 8080,
+	"tls_path": "tls.cert",
+	"macaroon_path": "admin.macaroon",
+	"node_url": "10.0.1.249",
+	"node_port": "10009"
+} 
