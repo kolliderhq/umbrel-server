@@ -1,10 +1,5 @@
 const ws = require("ws");
-const { createLndConnection } = require("./lnd_client");
 const zmq = require("zeromq");
-
-let lndConnecton = createLndConnection();
-let invoiceHook = lndConnecton.subscribeInvoices({});
-let sendPaymentHook = lndConnecton.sendPayment();
 
 const AUTHENTICATION = "authentication";
 const SEND_PAYMENT = "sendPayment";
@@ -59,25 +54,6 @@ wss.on("connection", function connection(ws) {
   };
 
   zmqSubscriber(onZmqReply)
-
-  // invoiceHook.on("data", function (invoice) {
-  //   if (invoice.settled) {
-  //     const data = {
-  //       amount: invoice.amt_paid_sat,
-  //     };
-  //     ws.send(createResponse(data, "receivedPayment"));
-
-  //     lndConnecton.channelBalance({}, (err, response) => {
-  //       if (err) {
-  //         const data = {
-  //           msg: "There was an error getting channel balancs.",
-  //         };
-  //         ws.send(createResponse(data, "error"));
-  //       }
-  //       ws.send(createResponse(response, "channelBalances"));
-  //     });
-  //   }
-  // });
 
   ws.on("message", function message(data) {
     let d = "";
