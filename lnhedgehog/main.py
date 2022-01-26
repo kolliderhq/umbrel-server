@@ -473,108 +473,6 @@ class HedgerEngine(KolliderWsClient):
 		self.wallet.update_channel_balance(channel_balances.balance)
 		self.wallet.update_onchain_balance(onchain_balances.total_balance)
 
-
-	def zmq_listener(self):
-		context = zmq.Context()
-		socket = context.socket(zmq.REP)
-		socket.bind(SOCKET_ADDRESS)
-		while True:
-			message = ""
-			try:
-				message = socket.recv_json()
-			except Exception as e:
-				print(e)
-				continue
-			if message.get("action") is not None:
-				action = message.get("action")
-				data = message.get("data")
-				if action == "set_hedge_proportion":
-					self.hedge_proportion = data 
-				if action == "get_node_info":
-					res = self.lnd_client.get_info()
-					response = {
-						"type": "getNodeInfo",
-						"data": {
-							"identity_pubkey": res.identity_pubkey,
-							"alias": res.alias,
-							"num_active_channels": res.num_active_channels,
-							"num_peers": res.num_peers,
-							"block_height": res.block_height,
-							"block_hash": res.block_hash,
-							"synced_to_chain": res.synced_to_chain,
-							"best_header_timestamp": res.best_header_timestamp,
-							"version": res.version, 
-							"color": res.color,
-							"synced_to_graph": res.synced_to_graph
-						}
-					}
-					socket.send_json(response)
-					continue
-				if action == "create_invoice":
-					message = "kollider"
-					res = self.lnd_client.add_invoice(data["amount"], message)
-					response = {
-						"type": "createInvoice",
-						"data": {
-							"paymentRequest": res.payment_request
-						}
-					}
-					socket.send_json(response)
-					continue
-				if action == "send_payment":
-					res = self.lnd_client.send_payment(data["payment_request"])
-					response = {
-						"type": "sendPayment",
-						"data": {
-							"status": "success",
-						}
-					}
-					socket.send_json(response)
-					continue
-				if action == "get_channel_balances":
-					res = self.lnd_client.get_channel_balances()
-					response = {
-						"type": "getChannelBalances",
-						"data": {
-							"local": res.local_balance.sat,
-							"localMsat": res.local_balance.msat,
-							"remote": res.remote_balance.sat,
-							"remoteMsat": res.remote_balance.msat
-						}
-					}
-					socket.send_json(response)
-					continue
-				if action == "get_wallet_balances":
-					res = self.lnd_client.get_onchain_balance()
-					response = {
-						"type": "getWalletBalances",
-						"data": {
-							"confirmed_balance": res.confirmed_balance,
-							"total_balance": res.total_balance,
-						}
-					}
-					socket.send_json(response)
-					continue
-				if action == "lnurl_auth":
-					decoded_url = lnurl.decode(data["lnurl"])
-					res = self.lnd_client.sign_message(SEED_WORD)
-					lnurl_auth_signature = perform_lnurlauth(res.signature, decoded_url)
-					try:
-						_ = requests.get(lnurl_auth_signature)
-						response = {
-							"type": "lnurl_auth",
-							"data": {
-								"status": "success"
-							}
-						}
-						socket.send_json(response)
-					except Exception as e:
-						print(e)
-					continue
-				# if action == "kollider_auth":
-				# 	continue
-			sleep(0.5)
-
 	def start(self, settings):
 		print("Connecting to Kollider websockets..")
 		while not self.ws_is_open:
@@ -587,9 +485,6 @@ class HedgerEngine(KolliderWsClient):
 
 		self.update_node_info()
 		
-		zmq_listener = threading.Thread(target=self.zmq_listener, daemon=False)
-		zmq_listener.start()
-
 		while True:
 			# Don't do anything if we haven't received the contracts.
 			if not self.received_tradable_symbols and not self.is_authenticated:
@@ -616,27 +511,133 @@ class HedgerEngine(KolliderWsClient):
 
 			sleep(cycle_speed)
 
+def lnd_node_server(lnd_client):
+	print("Started lnd node server")
+	context = zmq.Context()
+	socket = context.socket(zmq.REP)
+	socket.bind(SOCKET_ADDRESS)
+	while True:
+		message = ""
+		try:
+			message = socket.recv_json()
+		except Exception as e:
+			print(e)
+			continue
+		if message.get("action") is not None:
+			action = message.get("action")
+			data = message.get("data")
+			if action == "get_node_info":
+				res = lnd_client.get_info()
+				response = {
+					"type": "getNodeInfo",
+					"data": {
+						"identity_pubkey": res.identity_pubkey,
+						"alias": res.alias,
+						"num_active_channels": res.num_active_channels,
+						"num_peers": res.num_peers,
+						"block_height": res.block_height,
+						"block_hash": res.block_hash,
+						"synced_to_chain": res.synced_to_chain,
+						"best_header_timestamp": res.best_header_timestamp,
+						"version": res.version, 
+						"color": res.color,
+						"synced_to_graph": res.synced_to_graph
+					}
+				}
+				socket.send_json(response)
+				continue
+			if action == "create_invoice":
+				message = "kollider"
+				res = lnd_client.add_invoice(data["amount"], message)
+				response = {
+					"type": "createInvoice",
+					"data": {
+						"paymentRequest": res.payment_request
+					}
+				}
+				socket.send_json(response)
+				continue
+			if action == "send_payment":
+				res = lnd_client.send_payment(data["payment_request"])
+				response = {
+					"type": "sendPayment",
+					"data": {
+						"status": "success",
+					}
+				}
+				socket.send_json(response)
+				continue
+			if action == "get_channel_balances":
+				res = lnd_client.get_channel_balances()
+				response = {
+					"type": "getChannelBalances",
+					"data": {
+						"local": res.local_balance.sat,
+						"localMsat": res.local_balance.msat,
+						"remote": res.remote_balance.sat,
+						"remoteMsat": res.remote_balance.msat
+					}
+				}
+				socket.send_json(response)
+				continue
+			if action == "get_wallet_balances":
+				res = lnd_client.get_onchain_balance()
+				response = {
+					"type": "getWalletBalances",
+					"data": {
+						"confirmed_balance": res.confirmed_balance,
+						"total_balance": res.total_balance,
+					}
+				}
+				socket.send_json(response)
+				continue
+			if action == "lnurl_auth":
+				decoded_url = lnurl.decode(data["lnurl"])
+				res = lnd_client.sign_message(SEED_WORD)
+				lnurl_auth_signature = perform_lnurlauth(res.signature, decoded_url)
+				try:
+					_ = requests.get(lnurl_auth_signature)
+					response = {
+						"type": "lnurl_auth",
+						"data": {
+							"status": "success"
+						}
+					}
+					socket.send_json(response)
+				except Exception as e:
+					print(e)
+				continue
+		sleep(0.5)
 
 
-if __name__ in "__main__":
-
+def main():
 	settings = None
 	with open('config.json') as a:
 		settings = json.load(a)
 
 	kollider_api_key = settings["kollider"]["api_key"]
 	kollider_url = settings["kollider"]["ws_url"]
+	kollider_passphrase = settings["kollider"]["api_passphrase"]
+	kollider_secret = settings["kollider"]["api_secret"]
 
 	node_url = settings["lnd"]["node_url"]
 	macaroon_path = settings["lnd"]["admin_macaroon_path"]
 	tls_path = settings["lnd"]["tls_path"]
 
 	lnd_client = LndClient(node_url, macaroon_path, tls_path)
-
 	rn_engine = HedgerEngine(lnd_client)
 
 	lock = Lock()
 
-	rn_engine.connect(settings["kollider"]["ws_url"], settings["kollider"]["api_key"], settings["kollider"]["api_secret"], settings["kollider"]["api_passphrase"])
+	if kollider_api_key and kollider_passphrase and kollider_passphrase and kollider_url:
+		print("Starting Hedging Engine")
+		rn_engine.connect(kollider_url, kollider_api_key, kollider_secret, kollider_passphrase)
+		rn_engine.start(settings)
 
-	rn_engine.start(settings)
+	lnd_node_server_thread = threading.Thread(target=lnd_node_server, daemon=False, args=(lnd_client, ))
+	lnd_node_server_thread.start()
+
+
+if __name__ in "__main__":
+	main()
+
