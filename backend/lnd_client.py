@@ -21,6 +21,11 @@ class LndClient(object):
 			self.macaroon = codecs.encode(macaroon_bytes, 'hex')
 		self.node_url = node_url
 
+	def sub_invoices(self, callback):
+		request = ln.InvoiceSubscription()
+		for invoice in self.stub.SubscribeInvoices(request, metadata=[('macaroon', self.macaroon)]):
+			callback(invoice)
+
 	def get_info(self):
 		return self.stub.GetInfo(ln.GetInfoRequest(), metadata=[('macaroon', self.macaroon)])
 

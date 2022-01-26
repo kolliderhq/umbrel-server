@@ -15,6 +15,7 @@ const GET_NODE_INFO = "getNodeInfo";
 const LNURL_AUTH = "lnurlAuth";
 
 const ZMQ_ADDRESS = "tcp://127.0.0.1:5556";
+const ZMQ_SUB_ADDRESS = "tcp://127.0.0.1:5557"
 
 const createResponse = (data, type) => {
   const resp = {
@@ -25,12 +26,13 @@ const createResponse = (data, type) => {
 };
 
 async function zmqSubscriber(onMessage) {
-  const subSocket = new zmq.Reply();
+  const subSocket = new zmq.Subscriber();
 
-  await subSocket.connect("tcp://127.0.0.1:3002");
+  await subSocket.connect(ZMQ_SUB_ADDRESS);
+  subSocket.subscribe("invoices")
 
   for await (const [topic, msg] of subSocket) {
-    onMessage(topic, msg);
+    onMessage(msg);
   }
 }
 
@@ -52,29 +54,30 @@ wss.on("connection", function connection(ws) {
   let isAuthenticated = false;
 
   const onZmqReply = (msg) => {
+    console.log(msg)
     ws.send(msg.toString());
   };
 
-  // zmqSubscriber(onZmqMessage).then(() =>{})
+  zmqSubscriber(onZmqReply)
 
-  invoiceHook.on("data", function (invoice) {
-    if (invoice.settled) {
-      const data = {
-        amount: invoice.amt_paid_sat,
-      };
-      ws.send(createResponse(data, "receivedPayment"));
+  // invoiceHook.on("data", function (invoice) {
+  //   if (invoice.settled) {
+  //     const data = {
+  //       amount: invoice.amt_paid_sat,
+  //     };
+  //     ws.send(createResponse(data, "receivedPayment"));
 
-      lndConnecton.channelBalance({}, (err, response) => {
-        if (err) {
-          const data = {
-            msg: "There was an error getting channel balancs.",
-          };
-          ws.send(createResponse(data, "error"));
-        }
-        ws.send(createResponse(response, "channelBalances"));
-      });
-    }
-  });
+  //     lndConnecton.channelBalance({}, (err, response) => {
+  //       if (err) {
+  //         const data = {
+  //           msg: "There was an error getting channel balancs.",
+  //         };
+  //         ws.send(createResponse(data, "error"));
+  //       }
+  //       ws.send(createResponse(response, "channelBalances"));
+  //     });
+  //   }
+  // });
 
   ws.on("message", function message(data) {
     let d = "";

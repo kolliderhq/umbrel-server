@@ -18,7 +18,7 @@ from urllib.parse import urlparse, parse_qs
 import requests
 from lnurl_auth import perform_lnurlauth
 import hashlib
-from lnd_server import lnd_node_server
+from lnd_server import lnd_node_server, lnd_invoice_publisher
 from lnhedgehog import HedgerEngine
 
 import zmq
@@ -42,13 +42,21 @@ def main():
 
 	lock = Lock()
 
+	lnd_node_server_thread = threading.Thread(target=lnd_node_server, daemon=False, args=(lnd_client, ))
+	lnd_node_server_thread.start()
+
+	lnd_publisher_thread = threading.Thread(target=lnd_invoice_publisher, daemon=True, args=(lnd_client, ))
+	lnd_publisher_thread.start()
+
 	if kollider_api_key and kollider_passphrase and kollider_passphrase and kollider_url:
 		print("Starting Hedging Engine")
 		rn_engine.connect(kollider_url, kollider_api_key, kollider_secret, kollider_passphrase)
-		rn_engine.start(settings)
+		hedger_thread = threading.Thread(target=rn_engine.start, daemon=True, args=(settings, ))
+		hedger_thread.start()
 
-	lnd_node_server_thread = threading.Thread(target=lnd_node_server, daemon=False, args=(lnd_client, ))
-	lnd_node_server_thread.start()
+	while True:
+		pass
+
 
 
 if __name__ in "__main__":

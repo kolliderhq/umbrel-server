@@ -1,6 +1,6 @@
 tls.cert
 admin.macaroon
-/node_modules
+*/node_modules
 */googleapis
 config.json
 */__pycache__
