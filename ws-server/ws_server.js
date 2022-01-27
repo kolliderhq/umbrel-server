@@ -12,9 +12,9 @@ const GET_WALLET_STATE = "getWalletState";
 const SET_TARGET_HEDGE = "setTargetHedge";
 const LNURL_AUTH = "lnurlAuth";
 
-const ZMQ_ADDRESS = "";
-const ZMQ_SUB_ADDRESS = "";
-const ZMQ_HEDGER_ADDRESS = "";
+let ZMQ_ADDRESS = "";
+let ZMQ_SUB_ADDRESS = "";
+let ZMQ_HEDGER_ADDRESS = "";
 
 if (process.env.DEV) {
   ZMQ_ADDRESS = "tcp://127.0.0.1:5556";
