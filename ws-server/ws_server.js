@@ -12,9 +12,19 @@ const GET_WALLET_STATE = "getWalletState";
 const SET_TARGET_HEDGE = "setTargetHedge";
 const LNURL_AUTH = "lnurlAuth";
 
-const ZMQ_ADDRESS = "tcp://127.0.0.1:5556";
-const ZMQ_SUB_ADDRESS = "tcp://127.0.0.1:5557";
-const ZMQ_HEDGER_ADDRESS = "tcp://127.0.0.1:5558";
+const ZMQ_ADDRESS = "";
+const ZMQ_SUB_ADDRESS = "";
+const ZMQ_HEDGER_ADDRESS = "";
+
+if (process.env.DEV) {
+  ZMQ_ADDRESS = "tcp://127.0.0.1:5556";
+  ZMQ_SUB_ADDRESS = "tcp://127.0.0.1:5557";
+  ZMQ_HEDGER_ADDRESS = "tcp://127.0.0.1:5558";
+} else {
+  ZMQ_ADDRESS = "tcp://10.21.21.71:5556";
+  ZMQ_SUB_ADDRESS = "tcp://10.21.21.71:5557";
+  ZMQ_HEDGER_ADDRESS = "tcp://10.21.21.71:5558";
+}
 
 const createResponse = (data, type) => {
   const resp = {
