@@ -11,6 +11,8 @@ const GET_HEDGE_STATE = "getHedgeState";
 const GET_WALLET_STATE = "getWalletState";
 const SET_TARGET_HEDGE = "setTargetHedge";
 const LNURL_AUTH = "lnurlAuth";
+const LNURL_AUTH_HEDGE = "lnurlAuthHedge";
+const CREATE_NEW_HEDGE = "createNewHedge";
 
 let ZMQ_ADDRESS = "";
 let ZMQ_SUB_ADDRESS = "";
@@ -20,10 +22,12 @@ if (process.env.DEV) {
   ZMQ_ADDRESS = "tcp://127.0.0.1:5556";
   ZMQ_SUB_ADDRESS = "tcp://127.0.0.1:5557";
   ZMQ_HEDGER_ADDRESS = "tcp://127.0.0.1:5558";
+  ZMQ_HEDGER_SUB_ADDRESS = "tcp://127.0.0.1:5559";
 } else {
   ZMQ_ADDRESS = "tcp://10.21.21.71:5556";
   ZMQ_SUB_ADDRESS = "tcp://10.21.21.71:5557";
   ZMQ_HEDGER_ADDRESS = "tcp://10.21.21.71:5558";
+  ZMQ_HEDGER_SUB_ADDRESS = "tcp://10.21.21.71:5559";
 }
 
 const createResponse = (data, type) => {
@@ -45,7 +49,18 @@ async function zmqSubscriber(onMessage) {
   }
 }
 
-async function zmqRequest(msg, onReply) {
+async function zmqHedgerSubscriber(onMessage) {
+  const subSocket = new zmq.Subscriber();
+
+  await subSocket.connect(ZMQ_HEDGER_SUB_ADDRESS);
+  subSocket.subscribe("hedger_stream");
+
+  for await (const [topic, msg] of subSocket) {
+    onMessage(msg);
+  }
+}
+
+async function zmqLndRequest(msg, onReply) {
   const socket = new zmq.Request();
   socket.connect(ZMQ_ADDRESS);
   await socket.send(msg);
@@ -67,13 +82,14 @@ const wss = new ws.WebSocketServer({
 });
 
 wss.on("connection", function connection(ws) {
-  let isAuthenticated = false;
+  let isAuthenticated = true;
 
   const onZmqReply = (msg) => {
     ws.send(msg.toString());
   };
 
   zmqSubscriber(onZmqReply);
+  zmqHedgerSubscriber(onZmqReply)
 
   ws.on("message", function message(data) {
     let d = "";
@@ -115,7 +131,7 @@ wss.on("connection", function connection(ws) {
             amount: d.amount,
           },
         };
-        zmqRequest(JSON.stringify(msg), onZmqReply);
+        zmqLndRequest(JSON.stringify(msg), onZmqReply);
       }
     } else if (d.type === SEND_PAYMENT) {
       if (!d.paymentRequest) {
@@ -130,29 +146,29 @@ wss.on("connection", function connection(ws) {
             payment_request: d.paymentRequest,
           },
         };
-        zmqRequest(JSON.stringify(msg), onZmqReply);
+        zmqLndRequest(JSON.stringify(msg), onZmqReply);
       }
     } else if (d.type === GET_NODE_INFO) {
       const msg = {
         action: "get_node_info",
       };
-      zmqRequest(JSON.stringify(msg), onZmqReply);
+      zmqLndRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === GET_CHANNEL_BALANCES) {
       const msg = {
         action: "get_channel_balances",
       };
-      zmqRequest(JSON.stringify(msg), onZmqReply);
+      zmqLndRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === GET_WALLET_BALANCES) {
       const msg = {
         action: "get_wallet_balances",
       };
-      zmqRequest(JSON.stringify(msg), onZmqReply);
+      zmqLndRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === LNURL_AUTH) {
       const msg = {
         action: "lnurl_auth",
         data: { lnurl: d.lnurl },
       };
-      zmqRequest(JSON.stringify(msg), onZmqReply);
+      zmqLndRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === GET_HEDGE_STATE) {
       const msg = {
         action: "get_hedge_state",
@@ -171,6 +187,22 @@ wss.on("connection", function connection(ws) {
         },
       };
       zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
+    } else if (d.type === CREATE_NEW_HEDGE) {
+      const msg = {
+        action: "create_new_hedge",
+        data: {
+          amount: d.amountInSats,
+          is_staged: d.isStaged
+        },
+      };
+      zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
+    } else if (d.type === LNURL_AUTH_HEDGE) {
+      const msg = {
+        action: "lnurl_auth_hedge",
+        data: {
+        },
+      };
+      zmqLndRequest(JSON.stringify(msg), onZmqReply);
     }
   });
 });

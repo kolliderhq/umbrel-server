@@ -1,3 +1,6 @@
+from BTrees.OOBTree import OOBTree
+import copy
+
 class Position(object):
     symbol = ""
     quantity = 0
@@ -97,4 +100,13 @@ class Ticker(object):
             self.quantity = float(msg["last_quantity"])
             self.last_side = msg["last_side"]
             self.symbol = msg["symbol"]
+
+
+class Orderbook(object):
+
+    def __init__(self, venue):
+        self.bids = copy.copy(OOBTree())
+        self.asks = copy.copy(OOBTree())
+        self.level = "l2"
+        self.venue = venue
 

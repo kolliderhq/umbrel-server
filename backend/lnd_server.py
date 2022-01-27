@@ -135,6 +135,29 @@ def lnd_node_server(lnd_client):
 				except Exception as e:
 					print(e)
 				continue
+			if action == "lnurl_auth_hedge":
+				print("penis")
+				response = requests.get("https://api.kollider.xyz/v1/auth/external/lnurl_auth")
+				print(response)
+				j = response.json()
+				decoded_url = lnurl.decode(j["lnurl_auth"])
+				res = lnd_client.sign_message(SEED_WORD)
+				sig1 = res.signature
+				sig2 = hashlib.sha224((sig1 + "/1").encode("utf-8")).digest()
+				res = lnd_client.sign_message(sig2)
+				lnurl_auth_signature = perform_lnurlauth(res.signature, decoded_url)
+				try:
+					_ = requests.get(lnurl_auth_signature)
+					response = {
+						"type": "lnurl_auth",
+						"data": {
+							"status": "success"
+						}
+					}
+					socket.send_json(response)
+				except Exception as e:
+					print(e)
+				continue
 		sleep(0.5)
 
 if __name__ in "__main__":
