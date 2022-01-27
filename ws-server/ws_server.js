@@ -7,13 +7,13 @@ const CREATE_INVOICE = "createInvoice";
 const GET_CHANNEL_BALANCES = "getChannelBalances";
 const GET_WALLET_BALANCES = "getWalletBalances";
 const GET_NODE_INFO = "getNodeInfo";
-const GET_HEDGE_STATE = "getHedgeState"
-const GET_WALLET_STATE = "getWalletState"
-const SET_TARGET_HEDGE = "setTargetHedge"
+const GET_HEDGE_STATE = "getHedgeState";
+const GET_WALLET_STATE = "getWalletState";
+const SET_TARGET_HEDGE = "setTargetHedge";
 const LNURL_AUTH = "lnurlAuth";
 
 const ZMQ_ADDRESS = "tcp://127.0.0.1:5556";
-const ZMQ_SUB_ADDRESS = "tcp://127.0.0.1:5557"
+const ZMQ_SUB_ADDRESS = "tcp://127.0.0.1:5557";
 const ZMQ_HEDGER_ADDRESS = "tcp://127.0.0.1:5558";
 
 const createResponse = (data, type) => {
@@ -28,7 +28,7 @@ async function zmqSubscriber(onMessage) {
   const subSocket = new zmq.Subscriber();
 
   await subSocket.connect(ZMQ_SUB_ADDRESS);
-  subSocket.subscribe("invoices")
+  subSocket.subscribe("invoices");
 
   for await (const [topic, msg] of subSocket) {
     onMessage(msg);
@@ -40,7 +40,6 @@ async function zmqRequest(msg, onReply) {
   socket.connect(ZMQ_ADDRESS);
   await socket.send(msg);
   const [result] = await socket.receive();
-  console.log(result);
   onReply(result);
 }
 
@@ -49,10 +48,8 @@ async function zmqHedgerRequest(msg, onReply) {
   socket.connect(ZMQ_HEDGER_ADDRESS);
   await socket.send(msg);
   const [result] = await socket.receive();
-  console.log(result);
   onReply(result);
 }
-
 
 const wss = new ws.WebSocketServer({
   port: 8080,
@@ -63,11 +60,10 @@ wss.on("connection", function connection(ws) {
   let isAuthenticated = false;
 
   const onZmqReply = (msg) => {
-    console.log(msg)
     ws.send(msg.toString());
   };
 
-  zmqSubscriber(onZmqReply)
+  zmqSubscriber(onZmqReply);
 
   ws.on("message", function message(data) {
     let d = "";
@@ -76,6 +72,28 @@ wss.on("connection", function connection(ws) {
     } catch (err) {
       return null;
     }
+    if (d.type === AUTHENTICATION) {
+      let env_password = process.env.APP_PASSWORD;
+      if (d.password === env_password) {
+        const data = {
+          status: "success",
+        };
+        isAuthenticated = true;
+        ws.send(createResponse(data, "authentication"));
+      } else {
+        const data = {
+          msg: "wrong password",
+        };
+        ws.send(createResponse(data, "authentication"));
+      }
+    }
+
+    if (!isAuthenticated) {
+      const response = createResponse({ msg: "Please Authenticate." }, "error");
+      ws.send(response.toString());
+      return;
+    }
+
     if (d.type === CREATE_INVOICE) {
       let amount = d.amount;
       if (!amount) {
@@ -127,38 +145,22 @@ wss.on("connection", function connection(ws) {
       zmqRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === GET_HEDGE_STATE) {
       const msg = {
-        action: "get_hedge_state"
-      }
+        action: "get_hedge_state",
+      };
       zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === GET_WALLET_STATE) {
       const msg = {
-        action: "get_wallet_state"
-      }
+        action: "get_wallet_state",
+      };
       zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === SET_TARGET_HEDGE) {
       const msg = {
         action: "set_target_hedge",
         data: {
-          proportion: d.proportion
-        }
-      }
+          proportion: d.proportion,
+        },
+      };
       zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === AUTHENTICATION) {
-      let env_password = process.env.APP_PASSWORD;
-      if (d.password === env_password) {
-        const data = {
-          status: "success",
-        };
-        isAuthenticated = true;
-        ws.send(createResponse(data, "authentication"));
-      } else {
-        const data = {
-          msg: "wrong password",
-        };
-        ws.send(createResponse(data, "authentication"));
-      }
-    } else {
-      ws.send(createResponse({ msg: "Action does not exist" }, "error"));
     }
   });
 });

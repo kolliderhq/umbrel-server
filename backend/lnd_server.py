@@ -136,3 +136,7 @@ def lnd_node_server(lnd_client):
 					print(e)
 				continue
 		sleep(0.5)
+
+if __name__ in "__main__":
+	url = "lnurl1dp68gup69uhkzurf9eehgct8d9hxwtntdakxc6tyv4ezu6tww3jhymnpdshhvvf0v96hg6p0d3h97mr0va5ku0m5v9nn6mr0va5kufntxy7nqc3cv9nrsvnrvfnrvvp5vcmnyvt9v4jx2e3nvs6rgvnrxgursc3hvg6kyenp8qmrgc34x3snjcnzxqurwwr9vymxvwfj8p3rwerrx5r0d7vc"
+	decoded_url = lnurl.decode(url)
