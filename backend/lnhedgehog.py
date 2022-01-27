@@ -327,10 +327,44 @@ class HedgerEngine(KolliderWsClient):
                 total_balance += float(order_margin)
             self.wallet.update_kollider_balance(total_balance)
 
-        elif t == 'error':
-            print("ERROR")
-            print(data)
+		elif t == 'error':
+			print("ERROR")
+			print(data)
 		
+	def calc_sat_value(self, qty, price, contract):
+		if contract.is_inverse_priced:
+			return 1 / price * qty * SATOSHI_MULTIPLIER
+		else:
+			return price * qty * SATOSHI_MULTIPLIER
+
+	def calc_average_entry(self, ob, side, amount_in_sats):
+		bucket = None
+		if side == "bid":
+			bucket = ob.bids
+		else:
+			bucket = ob.asks
+
+		remaining_value = amount_in_sats
+
+		contract = self.contracts.get(self.target_symbol)
+		if not contract:
+			return
+
+		running_numerator = 0
+		running_denominator = 0
+		for (price, qty) in bucket.items():
+			value = self.calc_sat_value(qty, price, contract)
+			remaining_value -= value
+
+			if contract.is_inverse_priced:
+				running_numerator += qty
+				running_denominator += qty / price
+			else:
+				running_numerator += qty * price
+				running_denominator += qty
+
+			if remaining_value <= 0:
+				return running_numerator / running_denominator
 
     def estimate_hedge_price(self):
         if self.staged_hedge_value > 0:
