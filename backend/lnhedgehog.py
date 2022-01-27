@@ -16,6 +16,9 @@ import threading
 
 import zmq
 
+SOCKET_PUB_ADDRESS = "tcp://*:5557"
+SOCKET_ADDRESS = "tcp://*:5558"
+
 class HedgerState(object):
 	position_quantity = 0
 	ask_open_order_quantity = 0
@@ -44,7 +47,7 @@ class Wallet(object):
 
 	def __init__(self):
 		self.channel_balance = 0
-		self.nchain_balance = 0
+		self.onchain_balance = 0
 		self.kollider_balance = 0
 
 	def update_channel_balance(self, balance):
@@ -69,6 +72,9 @@ class Wallet(object):
 
 class HedgerEngine(KolliderWsClient):
 	def __init__(self, lnd_client):
+		self.kollider_api_key = None
+		self.kollider_api_secret = None
+		self.kollider_api_passphrase = None
 		# Orders that are currently open on the Kollider platform.
 		self.open_orders = {}
 		# Positions that are currently open on the Kollider platform.
@@ -87,7 +93,7 @@ class HedgerEngine(KolliderWsClient):
 		self.target_leverage = 100
 
 		# Last hedge state.
-		self.last_state = None
+		self.last_state = HedgerState()
 
 		# Summary of the connected node.
 		self.node_info = None
@@ -109,6 +115,9 @@ class HedgerEngine(KolliderWsClient):
 
 		self.is_locked = True
 
+	def has_kollider_creds(self):
+		return self.kollider_api_key and self.kollider_api_secret and self.kollider_api_passphrase
+
 	def to_dict(self):
 		average_funding = self.average_hourly_funding_rates.get(self.target_symbol)
 		average_funding = average_funding if average_funding else 0
@@ -127,6 +136,9 @@ class HedgerEngine(KolliderWsClient):
 		}
 
 	def set_params(self, **args):
+		self.kollider_api_key = args["kollider"].get("api_key") if args["kollider"].get("api_key") else None
+		self.kollider_api_secret = args["kollider"].get("api_secret") if args["kollider"].get("api_secret") else None
+		self.kollider_api_passphrase = args["kollider"].get("api_passphrase") if args["kollider"].get("api_passphrase") else None
 		self.hedge_proportion = args.get("hedge_proportion") if args.get("hedge_proportion") else 0
 		self.hedge_side = args.get("hedge_side") if args.get("hedge_side") else None
 		self.target_fiat_currency = args.get("target_fiat_currency") if args.get("target_fiat_currency") else None
@@ -462,6 +474,87 @@ class HedgerEngine(KolliderWsClient):
 		self.wallet.update_channel_balance(channel_balances.balance)
 		self.wallet.update_onchain_balance(onchain_balances.total_balance)
 
+	def cli(self):
+		print("Hedger Cli")
+		context = zmq.Context()
+		socket = context.socket(zmq.REP)
+		socket.bind(SOCKET_ADDRESS)
+		while True:
+			message = ""
+			try:
+				message = socket.recv_json()
+			except Exception as e:
+				print(e)
+				continue
+			if message.get("action") is not None:
+				action = message.get("action")
+				data = message.get("data")
+				if action == "set_kollider_credentials":
+					api_key = data.get("api_key")
+					api_secret = data.get("api_secret")
+					api_passphrase = data.get("api_passphrase")
+					if api_key and api_secret and api_passphrase:
+						self.kollider_api_key = api_key
+						self.kollider_api_secret = api_secret
+						self.kollider_api_passphrase = api_passphrase
+						response = {
+							"type": "set_kollider_credentials",
+							"data": {
+								"status": "success"
+							}
+						}
+						socket.send_json(response)
+						continue
+					else: 
+						response = {
+							"type": "set_kollider_credentials",
+							"data": {
+								"status": "Plase provide all credentials"
+							}
+						}
+						socket.send_json(response)
+						continue
+				if action == "set_target_hedge":
+					print("setting target hedge")
+					print(data)
+					proportion = data.get("proportion")
+					self.hedge_proportion = proportion
+					response = {
+						"type": "set_target_hedge",
+						"data": {
+							"state": "ok"
+						}
+					}
+					socket.send_json(response)
+					continue
+				if action == "get_hedge_state":
+					response = {
+						"type": "set_hedge_state",
+						"data": {
+							"state": self.last_state.to_dict()
+						}
+					}
+					socket.send_json(response)
+					continue
+
+				if action == "get_wallet_state":
+					response = {
+						"type": "get_wallet_state",
+						"data": {
+							"state": self.wallet.to_dict()
+						}
+					}
+					socket.send_json(response)
+					continue
+
+				if action == "get_funding_history":
+					pass
+
+				if action == "get_wallet_state":
+					pass
+		sleep(0.5)
+
+
 	def start(self, settings):
 		print("Connecting to Kollider websockets..")
 		while not self.ws_is_open:
@@ -473,8 +566,14 @@ class HedgerEngine(KolliderWsClient):
 		self.set_params(**settings)
 
 		self.update_node_info()
+
+		cli_thread = threading.Thread(target=self.cli, daemon=False, args=())
+		cli_thread.start()
 		
 		while True:
+			if not self.has_kollider_creds():
+				continue
+
 			# Don't do anything if we haven't received the contracts.
 			if not self.received_tradable_symbols and not self.is_authenticated:
 				continue
