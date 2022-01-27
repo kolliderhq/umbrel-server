@@ -14,6 +14,7 @@ import uuid
 from pprint import pprint
 import threading
 import lnurl
+from lnurl.types import Url
 from urllib.parse import urlparse, parse_qs
 import requests
 from lnurl_auth import perform_lnurlauth
@@ -23,8 +24,11 @@ from lnhedgehog import HedgerEngine
 
 import zmq
 
+class ReplaceClearnetUrl(Url):
+    allowed_schemes = {"http", "https"}
+
 def main():
-	settings = None
+        lnurl.types.ClearnetUrl = ReplaceClearnetUrl
 	with open('config.json') as a:
 		settings = json.load(a)
 
