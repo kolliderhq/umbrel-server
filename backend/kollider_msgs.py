@@ -2,17 +2,6 @@ from BTrees.OOBTree import OOBTree
 import copy
 
 class Position(object):
-    symbol = ""
-    quantity = 0
-    entry_price = 0
-    leverage = 0
-    liq_price = 0
-    open_order_ids = []
-    side = ""
-    timestamp = ""
-    upnl = 0
-    rpnl = 0
-
     def __init__(self, msg=None):
         if msg:
             self.symbol = msg["symbol"]
@@ -25,6 +14,20 @@ class Position(object):
             self.timestamp = msg["timestamp"]
             self.upnl = int(msg["upnl"])
             self.rpnl = float(msg["rpnl"])
+
+    def to_dict(self):
+        return {
+            "symbol": self.symbol,
+            "quantity": self.quantity,
+            "entry_price": self.entry_price,
+            "leverage": self.leverage,
+            "liq_price": self.liq_price,
+            "open_order_ids": self.open_order_ids,
+            "side": self.side,
+            "timestamp": self.timestamp,
+            "upnl": self.upnl,
+            "rpnl": self.rpnl
+        }
 
 class OpenOrder(object):
     quantity = 0
@@ -58,16 +61,6 @@ class OpenOrder(object):
             self.settlement_type = msg["settlement_type"]
 
 class TradableSymbol(object):
-    base_margin = 0
-    contract_size = 0
-    is_inverse_price = None
-    last_price = 0
-    maintenance_margin = 0
-    max_leverage = 0
-    price = 0
-    symbol = ""
-    underlying_symbol = ""
-    tick_size = 0
 
     def __init__(self, msg=None):
         if msg:

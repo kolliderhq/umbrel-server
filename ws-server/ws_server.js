@@ -179,14 +179,6 @@ wss.on("connection", function connection(ws) {
         action: "get_wallet_state",
       };
       zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === SET_TARGET_HEDGE) {
-      const msg = {
-        action: "set_target_hedge",
-        data: {
-          proportion: d.proportion,
-        },
-      };
-      zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === CREATE_NEW_HEDGE) {
       const msg = {
         action: "create_new_hedge",
@@ -202,6 +194,9 @@ wss.on("connection", function connection(ws) {
         data: {
         },
       };
+      zmqLndRequest(JSON.stringify(msg), onZmqReply);
+    } else {
+      ws.send(createResponse({"msg": "action not available"}, "error"))
       zmqLndRequest(JSON.stringify(msg), onZmqReply);
     }
   });

@@ -1,6 +1,7 @@
 from ast import parse
 from os import get_inheritable
 from random import seed
+import re
 from kollider_api_client.ws import KolliderWsClient
 from kollider_api_client.rest import KolliderRestClient
 from utils import *
@@ -13,6 +14,7 @@ from math import floor
 import uuid
 from pprint import pprint
 import threading
+from custom_errors import *
 
 import zmq
 import copy
@@ -103,7 +105,6 @@ class HedgerEngine(KolliderWsClient):
         self.hedge_value = 0
         self.staged_hedge_value = 0
 
-        self.hedge_proportion = 0
         self.hedge_side = None
         self.target_leverage = 100
 
@@ -151,7 +152,7 @@ class HedgerEngine(KolliderWsClient):
             "target_symbol": self.target_index_symbol,
             "target_index_symbol": self.target_index_symbol,
             "hedge_value": self.hedge_value,
-            "hedge_proportion": self.hedge_proportion,
+            "staged_hedge_value": self.staged_hedge_value,
             "average_hourly_funding_rate": average_funding
         }
 
@@ -176,6 +177,13 @@ class HedgerEngine(KolliderWsClient):
             "target_leverage") if args.get("target_leverage") else None
         self.order_type = args.get("order_type") if args.get(
             "order_type") else "Market"
+
+    def publish_msg(self, msg, type):
+        message = {
+            "type": type,
+            "data": msg,
+        }
+        self.publisher.send_multipart(["hedger_stream".encode("utf-8"), json.dumps(message).encode("utf-8")])
 
     def on_open(self, event):
         self.auth()
@@ -268,7 +276,7 @@ class HedgerEngine(KolliderWsClient):
             position = Position(msg=data)
             if position.symbol == self.target_symbol:
                 self.positions[self.target_symbol] = position
-
+            self.publish_msg(position.to_dict(), "position_state")
         elif t == 'ticker':
             self.last_ticker = Ticker(msg=data)
 
@@ -337,12 +345,20 @@ class HedgerEngine(KolliderWsClient):
         else:
             return price * qty * SATOSHI_MULTIPLIER
 
-    def calc_average_entry(self, ob, side, amount_in_sats):
+    def calc_average_price(self, qty_1, qty_2, price_1, price_2, contract):
+        if contract.is_inverse_priced:
+            return (qty_1 + qty_2) / (qty_1 / price_1 + qty_2 / price_2)
+        return (qty_1 * price_1 + qty_2 * price_2) / (qty_1 + qty_2)
+
+    def convert_price(self, price, contract):
+        return price / 10 ** contract.price_dp
+
+    def calc_average_entry(self, side, amount_in_sats):
         bucket = None
         if side == "bid":
-            bucket = ob.bids
+            bucket = reversed(self.orderbook.bids.items())
         else:
-            bucket = ob.asks
+            bucket = self.orderbook.asks.items()
 
         remaining_value = amount_in_sats
 
@@ -352,28 +368,58 @@ class HedgerEngine(KolliderWsClient):
 
         running_numerator = 0
         running_denominator = 0
-        for (price, qty) in bucket.items():
+
+        for (price, qty) in bucket:
+            price = self.convert_price(price, contract)
             value = self.calc_sat_value(qty, price, contract)
             remaining_value -= value
-
-        if contract.is_inverse_priced:
-            running_numerator += qty
-            running_denominator += qty / price
-        else:
-            running_numerator += qty * price
-            running_denominator += qty
+            if contract.is_inverse_priced:
+                running_numerator += qty
+                running_denominator += qty / price
+            else:
+                running_numerator += qty * price
+                running_denominator += qty
+            if remaining_value <= 0:
+                break
 
         if remaining_value <= 0:
             return running_numerator / running_denominator
 
+        raise InsufficientBookDepth(remaining_value)
+
     def estimate_hedge_price(self):
         if self.staged_hedge_value > 0:
             staged_hedge_state = StagedHedgeState()
-            staged_hedge_state.estimated_fill_price = self.last_ticker.mid
+            position = self.positions.get(self.target_symbol)
+            contract = self.contracts.get(self.target_symbol)
+            if not contract:
+                return
+            current_hedged_value = 0
+            if position:
+                current_hedged_value = self.calc_sat_value(position.quantity, position.entry_price, contract)
+                staged_hedge_state.estimated_fill_price = position.entry_price
+
+            diff_qty = self.staged_hedge_value - current_hedged_value
+
+            if diff_qty > 0:
+                try:
+                    staged_hedge_state.estimated_fill_price = self.calc_average_entry("bid", diff_qty)
+                    if position:
+                        staged_hedge_state.estimated_fill_price = self.calc_average_price(diff_qty, position.qty, staged_hedge_state.estimated_fill_price, position.entry_price)
+                except InsufficientBookDepth as err:
+                    error = {
+                        "msg": "InsufficientBookDepth",
+                        "remaining": err.remaining_value,
+                    }
+                    self.publish_msg(error, "error")
+                    return
+
             msg = {
                 "type": "estimate_hedge_price",
                 "data": {
-                        "price": staged_hedge_state.to_dict()
+                        "current_hedged_value": current_hedged_value,
+                        "staged_targed_hedge_value": self.staged_hedge_value,
+                        "price": staged_hedge_state.to_dict(),
                 }
             }
             self.publisher.send_multipart(
@@ -566,13 +612,12 @@ class HedgerEngine(KolliderWsClient):
 
     def check_state(self, state):
         side = opposite_side(self.hedge_side)
-        # If our current position has the right quantity and the right side we are fully locked
-        if state.target_quantity == state.position_quantity and state.side == side:
-            state.is_locking = False
-            self.is_locked = True
-        else:
-            state.is_locking = True
-            self.is_locked = False
+        position = self.positions.get(self.target_symbol)
+        contract = self.contracts.get(self.target_symbol)
+        if position:
+            hedged_value = self.calc_sat_value(position.quantity, position.entry_price, contract)
+            if abs(hedged_value - self.hedge_value) / self.hedge_value < 0.01:
+                self.is_locked = True
         return state
 
     def print_state(self, state):
@@ -636,22 +681,12 @@ class HedgerEngine(KolliderWsClient):
                         }
                         socket.send_json(response)
                         continue
-                if action == "set_target_hedge":
-                    proportion = data.get("proportion")
-                    self.hedge_proportion = proportion
-                    response = {
-                        "type": "set_target_hedge",
-                        "data": {
-                                "state": "ok"
-                        }
-                    }
-                    socket.send_json(response)
-                    continue
+
                 if action == "get_hedge_state":
                     response = {
                         "type": "set_hedge_state",
                         "data": {
-                                "state": self.last_state.to_dict()
+                                "state": self.to_dict()
                         }
                     }
                     socket.send_json(response)
