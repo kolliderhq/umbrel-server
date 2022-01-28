@@ -4,7 +4,7 @@
 
 ```
 cp sample.config.json config.json
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 python main.py
 ```
 **Note**: Make sure the right config variables are set. If you don't set the variables for the Kollider API then it will not hedge.
