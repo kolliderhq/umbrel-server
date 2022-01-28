@@ -24,7 +24,7 @@ SOCKET_ADDRESS = "tcp://*:5558"
 
 def save_to_settings(settings):
     with open(settings["settings_path"], 'w') as outfile:
-        json.dump(settings, outfile)
+        json.dump(settings, outfile, indent=4, sort_keys=True)
 
 class HedgerState(object):
     position_quantity = 0
