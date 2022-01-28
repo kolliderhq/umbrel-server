@@ -114,6 +114,9 @@ class HedgerEngine(KolliderWsClient):
         # Last hedge state.
         self.last_state = HedgerState()
 
+        # Last staged estimated price
+        self.last_estimated_hedge_price = None
+
         # Summary of the connected node.
         self.node_info = None
 
@@ -413,7 +416,7 @@ class HedgerEngine(KolliderWsClient):
                 try:
                     staged_hedge_state.estimated_fill_price = self.calc_average_entry("bid", diff_qty)
                     if position:
-                        staged_hedge_state.estimated_fill_price = self.calc_average_price(diff_qty, position.quantity, staged_hedge_state.estimated_fill_price, position.entry_price)
+                        staged_hedge_state.estimated_fill_price = self.calc_average_price(diff_qty, position.quantity, staged_hedge_state.estimated_fill_price, position.entry_price, contract)
                 except InsufficientBookDepth as err:
                     error = {
                         "msg": "InsufficientBookDepth",
@@ -422,16 +425,20 @@ class HedgerEngine(KolliderWsClient):
                     self.publish_msg(error, "error")
                     return
 
-            msg = {
-                "type": "estimate_hedge_price",
-                "data": {
-                        "current_hedged_value": current_hedged_value,
-                        "staged_targed_hedge_value": self.staged_hedge_value,
-                        "price": staged_hedge_state.to_dict(),
+            # publish only if the estimated price has changed enough
+            if not self.last_estimated_hedge_price or \
+                abs(staged_hedge_state.estimated_fill_price - self.last_estimated_hedge_price) / self.last_estimated_hedge_price > 0.00025:
+                self.last_estimated_hedge_price = staged_hedge_state.estimated_fill_price
+                msg = {
+                    "type": "estimate_hedge_price",
+                    "data": {
+                            "current_hedged_value": current_hedged_value,
+                            "staged_targed_hedge_value": self.staged_hedge_value,
+                            "price": staged_hedge_state.to_dict(),
+                    }
                 }
-            }
-            self.publisher.send_multipart(
-                ["hedger_stream".encode("utf-8"), json.dumps(msg).encode("utf-8")])
+                self.publisher.send_multipart(
+                    ["hedger_stream".encode("utf-8"), json.dumps(msg).encode("utf-8")])
 
     def make_withdrawal(self, amount, message):
         amt = int(amount)
