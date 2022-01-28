@@ -197,7 +197,6 @@ wss.on("connection", function connection(ws) {
       zmqLndRequest(JSON.stringify(msg), onZmqReply);
     } else {
       ws.send(createResponse({"msg": "action not available"}, "error"))
-      zmqLndRequest(JSON.stringify(msg), onZmqReply);
     }
   });
 });

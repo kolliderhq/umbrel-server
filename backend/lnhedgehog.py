@@ -22,6 +22,9 @@ import copy
 SOCKET_PUB_ADDRESS = "tcp://*:5559"
 SOCKET_ADDRESS = "tcp://*:5558"
 
+def save_to_settings(settings):
+    with open(settings["settings_path"], 'w') as outfile:
+        json.dump(settings, outfile)
 
 class HedgerState(object):
     position_quantity = 0
@@ -135,6 +138,8 @@ class HedgerEngine(KolliderWsClient):
         self.publisher = context.socket(zmq.PUB)
         self.publisher.bind(SOCKET_PUB_ADDRESS)
 
+        self.settings = {}
+
     def has_kollider_creds(self):
         return self.kollider_api_key and self.kollider_api_secret and self.kollider_api_passphrase
 
@@ -157,6 +162,7 @@ class HedgerEngine(KolliderWsClient):
         }
 
     def set_params(self, **args):
+        print(args)
         self.kollider_api_key = args["kollider"].get(
             "api_key") if args["kollider"].get("api_key") else None
         self.kollider_api_secret = args["kollider"].get(
@@ -167,6 +173,8 @@ class HedgerEngine(KolliderWsClient):
             "hedge_proportion") if args.get("hedge_proportion") else 0
         self.hedge_side = args.get(
             "hedge_side") if args.get("hedge_side") else None
+        self.hedge_value = args.get(
+            "hedge_value") if args.get("hedge_value") else 0
         self.target_fiat_currency = args.get(
             "target_fiat_currency") if args.get("target_fiat_currency") else None
         self.target_symbol = args.get(
@@ -405,7 +413,7 @@ class HedgerEngine(KolliderWsClient):
                 try:
                     staged_hedge_state.estimated_fill_price = self.calc_average_entry("bid", diff_qty)
                     if position:
-                        staged_hedge_state.estimated_fill_price = self.calc_average_price(diff_qty, position.qty, staged_hedge_state.estimated_fill_price, position.entry_price)
+                        staged_hedge_state.estimated_fill_price = self.calc_average_price(diff_qty, position.quantity, staged_hedge_state.estimated_fill_price, position.entry_price)
                 except InsufficientBookDepth as err:
                     error = {
                         "msg": "InsufficientBookDepth",
@@ -616,8 +624,11 @@ class HedgerEngine(KolliderWsClient):
         contract = self.contracts.get(self.target_symbol)
         if position:
             hedged_value = self.calc_sat_value(position.quantity, position.entry_price, contract)
-            if abs(hedged_value - self.hedge_value) / self.hedge_value < 0.01:
-                self.is_locked = True
+            if self.hedge_value == 0:
+                self.is_locked = False
+            else:
+                if abs(hedged_value - self.hedge_value) / self.hedge_value < 0.01:
+                    self.is_locked = True
         return state
 
     def print_state(self, state):
@@ -707,6 +718,8 @@ class HedgerEngine(KolliderWsClient):
                         self.staged_hedge_value = data["amount"]
                     else:
                         self.hedge_value = data["amount"]
+                        self.settings["hedge_value"] = data["amount"]
+                        save_to_settings(self.settings)
                     response = {
                         "type": "create_new_hedge",
                         "data": {
@@ -725,6 +738,7 @@ class HedgerEngine(KolliderWsClient):
 
     def start(self, settings):
         print("Connecting to Kollider websockets..")
+        pprint(settings)
         while not self.ws_is_open:
             pass
         print("Connected to websockets.")
@@ -732,6 +746,7 @@ class HedgerEngine(KolliderWsClient):
         cycle_speed = settings["cycle_speed"]
 
         self.set_params(**settings)
+        self.settings = settings
 
         self.update_node_info()
 
