@@ -641,6 +641,7 @@ class HedgerEngine(KolliderWsClient):
             else:
                 if abs(hedged_value - self.hedge_value) / self.hedge_value < 0.01:
                     self.is_locked = True
+                    self.has_live_market_order = True
         return state
 
     def print_state(self, state):
