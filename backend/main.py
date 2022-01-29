@@ -40,7 +40,7 @@ def main():
     kollider_secret = settings["kollider"]["api_secret"]
 
     node_url = ""
-    if environ.get("LN_IP") is None:
+    if environ.get("LND_IP") is None:
         node_url = settings["lnd"]["node_url"]
     else:
         node_url = environ["LN_IP"]
