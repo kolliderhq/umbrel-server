@@ -6,7 +6,7 @@ from kollider_api_client.ws import KolliderWsClient
 from kollider_api_client.rest import KolliderRestClient
 from utils import *
 from lnd_client import LndClient
-from kollider_msgs import OpenOrder, Position, TradableSymbol, Ticker, Orderbook
+from kollider_msgs import OpenOrder, Position, TradableSymbol, Ticker, Orderbook, Trade
 from time import sleep
 from threading import Lock
 import json
@@ -24,7 +24,7 @@ SOCKET_ADDRESS = "tcp://*:5558"
 
 def save_to_settings(settings):
     with open(settings["settings_path"], 'w') as outfile:
-        json.dump(settings, outfile)
+        json.dump(settings, outfile, indent=4, sort_keys=True)
 
 class HedgerState(object):
     position_quantity = 0
@@ -133,6 +133,7 @@ class HedgerEngine(KolliderWsClient):
         self.average_hourly_funding_rates = {}
 
         self.is_locked = True
+        self.has_live_market_order = False # protection against us sending redundant market orders
 
         context = zmq.Context()
         self.publisher = context.socket(zmq.PUB)
@@ -269,11 +270,17 @@ class HedgerEngine(KolliderWsClient):
             self.open_orders[symbol] = [
                 open_order for open_order in self.open_orders[symbol] if open_order.order_id != order_id]
 
+        elif t == 'trade':
+            trade = Trade(data)
+            if trade.order_type == "Market":
+                self.has_live_market_order = False # we are assuming there's only 1 market order
+
         elif t == 'fill':
             symbol = msg["symbol"]
             order_id = msg["order_id"]
             quantity = msg["quantity"]
             orders = self.open_orders.get(symbol)
+
             if orders is None:
                 return
             for order in orders:
@@ -592,31 +599,36 @@ class HedgerEngine(KolliderWsClient):
                 self.cancel_all_orders_on_side(target_side)
                 return
 
-        price = self.get_best_price(side)
 
-        # Adding the order to the top of the book by adding/subtracting one tick.
-        if side == "Bid":
-            price += contract.tick_size
-        else:
-            price -= contract.tick_size
+        if not self.has_live_market_order: # prevent redundant market orders while waiting for fill
+            price = self.get_best_price(side)
 
-        price = int(price * (10**dp))
+            # Adding the order to the top of the book by adding/subtracting one tick.
+            if side == "Bid":
+                price += contract.tick_size
+            else:
+                price -= contract.tick_size
 
-        qty_required = abs(target - current)
+            price = int(price * (10**dp))
 
-        order = {
-            'symbol': self.target_symbol,
-            'side': side,
-            'quantity': qty_required,
-            'leverage': self.target_leverage,
-            'price': price,
-            'order_type': self.order_type,
-            'margin_type': 'Isolated',
-            'settlement_type': 'Instant',
-            'ext_order_id': str(uuid.uuid4()),
-        }
+            qty_required = abs(target - current)
 
-        self.place_order(order)
+            order = {
+                'symbol': self.target_symbol,
+                'side': side,
+                'quantity': qty_required,
+                'leverage': self.target_leverage,
+                'price': price,
+                'order_type': self.order_type,
+                'margin_type': 'Isolated',
+                'settlement_type': 'Instant',
+                'ext_order_id': str(uuid.uuid4()),
+            }
+
+            self.place_order(order)
+
+            if self.order_type == "Market":
+                self.has_live_market_order = True
 
     def check_state(self, state):
         side = opposite_side(self.hedge_side)

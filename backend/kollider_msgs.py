@@ -75,6 +75,13 @@ class TradableSymbol(object):
             self.underlying_symbol = msg["underlying_symbol"]
             self.tick_size = float(msg["tick_size"])
 
+class Trade(object):
+    order_type = None
+
+    def __init__(self, msg=None):
+        if msg:
+            self.order_type = msg["order_type"]
+
 class Ticker(object):
     best_bid = 0
     best_ask = 0
