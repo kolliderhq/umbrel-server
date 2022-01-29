@@ -1,5 +1,5 @@
 from ast import parse
-from os import get_inheritable
+from os import get_inheritable, environ
 from random import seed
 from kollider_api_client.ws import KolliderWsClient
 from kollider_api_client.rest import KolliderRestClient
@@ -39,7 +39,11 @@ def main():
     kollider_passphrase = settings["kollider"]["api_passphrase"]
     kollider_secret = settings["kollider"]["api_secret"]
 
-    node_url = settings["lnd"]["node_url"]
+    node_url = ""
+    if environ.get("LN_IP") is None:
+        node_url = settings["lnd"]["node_url"]
+    else:
+        node_url = environ["LN_IP"]
     macaroon_path = settings["lnd"]["admin_macaroon_path"]
     tls_path = settings["lnd"]["tls_path"]
 
