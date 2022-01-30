@@ -43,7 +43,7 @@ def main():
     if environ.get("LND_IP") is None:
         node_url = settings["lnd"]["node_url"]
     else:
-        node_url = environ["LND_IP"]
+        node_url = f"{environ['LND_IP']}:10009"
     macaroon_path = settings["lnd"]["admin_macaroon_path"]
     tls_path = settings["lnd"]["tls_path"]
 
