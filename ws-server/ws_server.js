@@ -24,10 +24,10 @@ if (process.env.DEV) {
   ZMQ_HEDGER_ADDRESS = "tcp://127.0.0.1:5558";
   ZMQ_HEDGER_SUB_ADDRESS = "tcp://127.0.0.1:5559";
 } else {
-  ZMQ_ADDRESS = "tcp://10.21.21.72:5556";
-  ZMQ_SUB_ADDRESS = "tcp://10.21.21.72:5557";
-  ZMQ_HEDGER_ADDRESS = "tcp://10.21.21.72:5558";
-  ZMQ_HEDGER_SUB_ADDRESS = "tcp://10.21.21.72:5559";
+  ZMQ_ADDRESS = process.env.KOLLIDER_ZMQ_ADDRESS;
+  ZMQ_SUB_ADDRESS = process.env.KOLLIDER_ZMQ_SUB_ADDRESS;
+  ZMQ_HEDGER_ADDRESS = process.env.KOLLIDER_ZMQ_HEDGER_ADDRESS;
+  ZMQ_HEDGER_SUB_ADDRESS = process.env.KOLLIDER_ZMQ_HEDGER_SUB_ADDRESS;
 }
 
 const createResponse = (data, type) => {
