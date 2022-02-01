@@ -85,11 +85,15 @@ wss.on("connection", function connection(ws) {
   let isAuthenticated = true;
 
   const onZmqReply = (msg) => {
-    ws.send(msg.toString());
+    let jstring = msg.toString()
+    jstring = JSON.parse(jstring);
+    jstring.map((m) => {
+      ws.send(JSON.stringify(m));
+    });
   };
 
   zmqSubscriber(onZmqReply);
-  zmqHedgerSubscriber(onZmqReply)
+  zmqHedgerSubscriber(onZmqReply);
 
   ws.on("message", function message(data) {
     let d = "";
@@ -106,6 +110,7 @@ wss.on("connection", function connection(ws) {
         };
         isAuthenticated = true;
         ws.send(createResponse(data, "authentication"));
+        return;
       } else {
         const data = {
           msg: "wrong password",
@@ -184,19 +189,18 @@ wss.on("connection", function connection(ws) {
         action: "create_new_hedge",
         data: {
           amount: d.amountInSats,
-          is_staged: d.isStaged
+          is_staged: d.isStaged,
         },
       };
       zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
     } else if (d.type === LNURL_AUTH_HEDGE) {
       const msg = {
         action: "lnurl_auth_hedge",
-        data: {
-        },
+        data: {},
       };
       zmqLndRequest(JSON.stringify(msg), onZmqReply);
     } else {
-      ws.send(createResponse({"msg": "action not available"}, "error"))
+      ws.send(createResponse({ msg: "action not available" }, "error"));
     }
   });
 });

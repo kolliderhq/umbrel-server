@@ -29,15 +29,30 @@ def lnd_invoice_publisher(ln_client):
 		}
 		if data["settled"]:
 			response = {
-				"type": "received_payment",
+				"type": "receivedPayment",
 				"data": {
 					"payment_request": data["payment_request"],
 					"amount": data["value"]
 				}
 			}
-			socket.send_multipart(["invoices".encode("utf-8"), json.dumps(response).encode("utf8")])
-
-	ln_client.sub_invoices(on_invoice)
+			socket.send_multipart(["invoices".encode("utf-8"), json.dumps([response]).encode("utf8")])
+	# ln_client.sub_invoices(on_invoice)
+	invoice_publish_thread = threading.Thread(
+		target=ln_client.sub_invoices, daemon=True, args=(on_invoice, ))
+	invoice_publish_thread.start()
+	while True:
+		res = ln_client.get_channel_balances()
+		response = {
+			"type": "getChannelBalances",
+			"data": {
+				"local": res.local_balance.sat,
+				"localMsat": res.local_balance.msat,
+				"remote": res.remote_balance.sat,
+				"remoteMsat": res.remote_balance.msat
+			}
+		}
+		socket.send_multipart(["invoices".encode("utf-8"), json.dumps([response]).encode("utf8")])
+		sleep(3)
 
 def lnd_node_server(lnd_client):
 	print("Started lnd node server")
@@ -72,7 +87,7 @@ def lnd_node_server(lnd_client):
 						"synced_to_graph": res.synced_to_graph
 					}
 				}
-				socket.send_json(response)
+				socket.send_json([response])
 				continue
 			if action == "create_invoice":
 				message = "kollider"
@@ -83,7 +98,7 @@ def lnd_node_server(lnd_client):
 						"paymentRequest": res.payment_request
 					}
 				}
-				socket.send_json(response)
+				socket.send_json([response])
 				continue
 			if action == "send_payment":
 				res = lnd_client.send_payment(data["payment_request"])
@@ -93,7 +108,17 @@ def lnd_node_server(lnd_client):
 						"status": "success",
 					}
 				}
-				socket.send_json(response)
+				res = lnd_client.get_channel_balances()
+				response_2 = {
+					"type": "getChannelBalances",
+					"data": {
+						"local": res.local_balance.sat,
+						"localMsat": res.local_balance.msat,
+						"remote": res.remote_balance.sat,
+						"remoteMsat": res.remote_balance.msat
+					}
+				}
+				socket.send_json([response, response_2])
 				continue
 			if action == "get_channel_balances":
 				res = lnd_client.get_channel_balances()
@@ -106,7 +131,7 @@ def lnd_node_server(lnd_client):
 						"remoteMsat": res.remote_balance.msat
 					}
 				}
-				socket.send_json(response)
+				socket.send_json([response])
 				continue
 			if action == "get_wallet_balances":
 				res = lnd_client.get_onchain_balance()
@@ -117,7 +142,7 @@ def lnd_node_server(lnd_client):
 						"total_balance": res.total_balance,
 					}
 				}
-				socket.send_json(response)
+				socket.send_json([response])
 				continue
 			if action == "lnurl_auth":
 				decoded_url = lnurl.decode(data["lnurl"])
@@ -131,7 +156,7 @@ def lnd_node_server(lnd_client):
 							"status": "success"
 						}
 					}
-					socket.send_json(response)
+					socket.send_json([response])
 				except Exception as e:
 					print(e)
 				continue
@@ -154,7 +179,7 @@ def lnd_node_server(lnd_client):
 							"status": "success"
 						}
 					}
-					socket.send_json(response)
+					socket.send_json([response])
 				except Exception as e:
 					print(e)
 				continue
