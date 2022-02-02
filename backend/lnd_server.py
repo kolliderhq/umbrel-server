@@ -160,7 +160,7 @@ def lnd_node_server(lnd_client):
 				try:
 					_ = requests.get(lnurl_auth_signature)
 					response = {
-						"type": "lnurl_auth",
+						"type": "lnurlAuth",
 						"data": {
 							"status": "success"
 						}
