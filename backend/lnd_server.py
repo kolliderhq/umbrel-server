@@ -101,24 +101,33 @@ def lnd_node_server(lnd_client):
 				socket.send_json([response])
 				continue
 			if action == "send_payment":
-				res = lnd_client.send_payment(data["payment_request"])
-				response = {
-					"type": "sendPayment",
-					"data": {
-						"status": "success",
+				resp = []
+				try:
+					res = lnd_client.send_payment(data["payment_request"])
+					response = {
+						"type": "sendPayment",
+						"data": {
+							"status": "success",
+						}
 					}
-				}
-				res = lnd_client.get_channel_balances()
-				response_2 = {
-					"type": "getChannelBalances",
-					"data": {
-						"local": res.local_balance.sat,
-						"localMsat": res.local_balance.msat,
-						"remote": res.remote_balance.sat,
-						"remoteMsat": res.remote_balance.msat
+					resp.append(response)
+				except Exception as err:
+					resp.append({"type": "error", "data": {"msg": "Failed sending payment."}})
+				try:
+					res = lnd_client.get_channel_balances()
+					response = {
+						"type": "getChannelBalances",
+						"data": {
+							"local": res.local_balance.sat,
+							"localMsat": res.local_balance.msat,
+							"remote": res.remote_balance.sat,
+							"remoteMsat": res.remote_balance.msat
+						}
 					}
-				}
-				socket.send_json([response, response_2])
+					resp.append(response)
+				except Exception as e:
+					resp.append({"type": "error", "data": {"msg": "Failed sending payment."}})
+				socket.send_json(resp)
 				continue
 			if action == "get_channel_balances":
 				res = lnd_client.get_channel_balances()

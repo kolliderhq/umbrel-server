@@ -38,7 +38,7 @@ const createResponse = (data, type) => {
   return JSON.stringify(resp);
 };
 
-async function zmqSubscriber(onMessage) {
+async function zmqSubscriber(onMessage, isAuthenticated) {
   const subSocket = new zmq.Subscriber();
 
   await subSocket.connect(ZMQ_SUB_ADDRESS);
@@ -49,7 +49,7 @@ async function zmqSubscriber(onMessage) {
   }
 }
 
-async function zmqHedgerSubscriber(onMessage) {
+async function zmqHedgerSubscriber(onMessage, isAuthenticated) {
   const subSocket = new zmq.Subscriber();
 
   await subSocket.connect(ZMQ_HEDGER_SUB_ADDRESS);
@@ -81,19 +81,17 @@ const wss = new ws.WebSocketServer({
   perMessageDeflate: false,
 });
 
-wss.on("connection", function connection(ws) {
-  let isAuthenticated = true;
+const onAuth = () => {};
 
+wss.on("connection", function connection(ws) {
+  let isAuthenticated = false;
   const onZmqReply = (msg) => {
-    let jstring = msg.toString()
+    let jstring = msg.toString();
     jstring = JSON.parse(jstring);
     jstring.map((m) => {
       ws.send(JSON.stringify(m));
     });
   };
-
-  zmqSubscriber(onZmqReply);
-  zmqHedgerSubscriber(onZmqReply);
 
   ws.on("message", function message(data) {
     let d = "";
@@ -104,12 +102,14 @@ wss.on("connection", function connection(ws) {
     }
     if (d.type === AUTHENTICATION) {
       let env_password = process.env.APP_PASSWORD;
-      if (d.password === env_password) {
+      if (d.password === env_password && !isAuthenticated) {
         const data = {
           status: "success",
         };
         isAuthenticated = true;
         ws.send(createResponse(data, "authentication"));
+        zmqSubscriber(onZmqReply);
+        zmqHedgerSubscriber(onZmqReply);
         return;
       } else {
         const data = {
