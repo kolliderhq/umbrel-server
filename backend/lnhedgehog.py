@@ -216,136 +216,162 @@ class HedgerEngine(KolliderWsClient):
 
     def on_message(self, _ctx, msg):
         msg = json.loads(msg)
-        t = msg["type"]
-        data = msg["data"]
-        if t == 'authenticate':
-            if data["message"] == "success":
-                self.is_authenticated = True
-            else:
-                print("Auth Unsuccessful: {}".format(data))
-                self.is_authenticated = False
-                self.__reset()
+        if "type" in msg:
+            t = msg["type"]
+            if "data" in msg:
+                data = msg["data"]
+                if t == 'authenticate':
+                    if data["message"] == "success":
+                        self.is_authenticated = True
+                    else:
+                        print("Auth Unsuccessful: {}".format(data))
+                        self.is_authenticated = False
+                        self.__reset()
 
-        elif t == 'index_values':
-            self.current_index_price = float(data["value"])
+                elif t == 'index_values':
+                    try:
+                        self.current_index_price = float(data["value"])
+                    except ValueError:
+                        print("ValueError index_values: {}".format(current_index_price))
 
-        elif t == 'mark_prices':
-            self.current_mark_price = float(data["price"])
+                elif t == 'mark_prices':
+                    try:
+                        self.current_mark_price = float(data["price"])
+                    except ValueError:
+                        print("ValueError mark_prices: {}".format(current_index_price))
 
-        elif t == 'positions':
-            print("Received positions.")
-            positions = data["positions"]
-            for key, value in positions.items():
-                self.positions[key] = Position(msg=value)
-
-        elif t == 'open_orders':
-            print("Received open orders")
-            open_orders = data["open_orders"]
-            for symbol, open_orders in open_orders.items():
-                for open_order in open_orders:
-                    if self.open_orders.get(symbol) is None:
-                        self.open_orders[symbol] = []
-                    oo = OpenOrder(msg=open_order)
-                    self.open_orders[symbol].append(oo)
-
-        elif t == 'tradable_symbols':
-            for symbol, contract in data["symbols"].items():
-                self.contracts[symbol] = TradableSymbol(msg=contract)
-            self.received_tradable_symbols = True
-
-        elif t == 'open':
-            open_order = data
-            contract = self.get_contract()
-            dp = contract.price_dp
-            open_order_parsed = OpenOrder(data, dp)
-            if self.open_orders.get(open_order_parsed.symbol) is None:
-                self.open_orders[open_order_parsed.symbol] = []
-            self.open_orders[open_order_parsed.symbol].append(
-                open_order_parsed)
-
-        elif t == 'done':
-            symbol = data["symbol"]
-            order_id = data["order_id"]
-            self.open_orders[symbol] = [
-                open_order for open_order in self.open_orders[symbol] if open_order.order_id != order_id]
-
-        elif t == 'fill':
-            symbol = msg["symbol"]
-            order_id = msg["order_id"]
-            quantity = msg["quantity"]
-            orders = self.open_orders.get(symbol)
-            if orders is None:
-                return
-            for order in orders:
-                if order.order_id == order_id:
-                    order.quantity -= quantity
-
-        elif t == 'position_states':
-            position = Position(msg=data)
-            if position.symbol == self.target_symbol:
-                self.positions[self.target_symbol] = position
-            self.publish_msg(position.to_dict(), "position_state")
-        elif t == 'ticker':
-            self.last_ticker = Ticker(msg=data)
-
-        elif t == 'order_invoice':
-            print("Received Pay to Trade invoice for: {}".format(
-                data["margin"]))
-            res = self.lnd_client.send_payment(data["invoice"])
-
-        elif t == 'settlement_request':
-            print("Received settlement Request")
-            amount = data["amount"]
-            self.make_withdrawal(amount, "Kollider Trade Settlement")
-
-        elif t == "level2state":
-            if data["update_type"] == "snapshot":
-                ob = copy.copy(Orderbook("kollider"))
-                for key, value in data["bids"].items():
-                    ob.bids[int(key)] = value
-
-                for key, value in data["asks"].items():
-                    ob.asks[int(key)] = value
-
-                if self.orderbook is not None:
-                    del self.state.orderbooks[data["symbol"]]
-                self.orderbook = ob
-            else:
-                bids = data["bids"]
-                asks = data["asks"]
-                if not self.orderbook:
-                    return
-                if bids:
-                    for price, quantity in bids.items():
-                        if quantity == 0:
-                            del self.orderbook.bids[int(price)]
+                elif t == 'positions':
+                    print("Received positions.")
+                    positions = data["positions"]
+                    for key, value in positions.items():
+                        if key in self.positions:
+                            self.positions[key] = Position(msg=value)
                         else:
-                            self.orderbook.bids[int(price)] = quantity
-                if asks:
-                    for price, quantity in asks.items():
-                        if quantity == 0:
-                            del self.orderbook.asks[int(price)]
-                        else:
-                            self.orderbook.asks[int(price)] = quantity
+                            print("Key {} missing in positions {}".format(key, self.positions))
 
-        elif t == 'balances':
-            total_balance = 0
-            cash_balance = float(data["cash"])
-            if cash_balance > 1:
-                self.make_withdrawal(cash_balance, "Kollider Payout")
-            total_balance += cash_balance
-            isolated_margin = data["isolated_margin"].get(self.target_symbol)
-            if isolated_margin is not None:
-                total_balance += float(isolated_margin)
+                elif t == 'open_orders':
+                    print("Received open orders")
+                    open_orders = data["open_orders"]
+                    for symbol, open_orders in open_orders.items():
+                        for open_order in open_orders:
+                            if self.open_orders.get(symbol) is None:
+                                self.open_orders[symbol] = []
+                            oo = OpenOrder(msg=open_order)
+                            self.open_orders[symbol].append(oo)
 
-            order_margin = data["order_margin"].get(self.target_symbol)
-            if order_margin is not None:
-                total_balance += float(order_margin)
-            self.wallet.update_kollider_balance(total_balance)
+                elif t == 'tradable_symbols':
+                    for symbol, contract in data["symbols"].items():
+                        self.contracts[symbol] = TradableSymbol(msg=contract)
+                    self.received_tradable_symbols = True
 
-        elif t == 'error':
-            print("ERROR")
-            print(data)
+                elif t == 'open':
+                    open_order = data
+                    contract = self.get_contract()
+                    dp = contract.price_dp
+                    open_order_parsed = OpenOrder(data, dp)
+                    if self.open_orders.get(open_order_parsed.symbol) is None:
+                        self.open_orders[open_order_parsed.symbol] = []
+                    self.open_orders[open_order_parsed.symbol].append(
+                        open_order_parsed)
+
+                elif t == 'done':
+                    symbol = data["symbol"]
+                    order_id = data["order_id"]
+                    self.open_orders[symbol] = [
+                        open_order for open_order in self.open_orders[symbol] if open_order.order_id != order_id]
+
+                elif t == 'fill':
+                    if "symbol" in msg and "order_id" in msg and "quantity" in msg:
+                        symbol = msg["symbol"]
+                        order_id = msg["order_id"]
+                        quantity = msg["quantity"]
+                        orders = self.open_orders.get(symbol)
+                        if orders is None:
+                            return
+                        for order in orders:
+                            if order.order_id == order_id:
+                                order.quantity -= quantity
+                    else:
+                        print("Missing parameters for fill msg")
+
+                elif t == 'position_states':
+                    position = Position(msg=data)
+                    if position.symbol == self.target_symbol:
+                        self.positions[self.target_symbol] = position
+                    self.publish_msg(position.to_dict(), "position_state")
+                elif t == 'ticker':
+                    self.last_ticker = Ticker(msg=data)
+
+                elif t == 'order_invoice':
+                    if "invoice" in data:
+                        print("Received Pay to Trade invoice for: {}".format(
+                            data["margin"]))
+                        res = self.lnd_client.send_payment(data["invoice"])
+                    else:
+                        print("Missing invoice in order_invoice data {}".format(data))
+
+                elif t == 'settlement_request':
+                    print("Received settlement Request")
+                    if "amount" in data:
+                        amount = data["amount"]
+                        self.make_withdrawal(amount, "Kollider Trade Settlement")
+                    else:
+                        print("Missing amount in settlement_request data {}".format(data))
+
+                elif t == "level2state":
+                    if data["update_type"] == "snapshot":
+                        ob = copy.copy(Orderbook("kollider"))
+                        for key, value in data["bids"].items():
+                            ob.bids[int(key)] = value
+
+                        for key, value in data["asks"].items():
+                            ob.asks[int(key)] = value
+
+                        if self.orderbook is not None:
+                            del self.state.orderbooks[data["symbol"]]
+                        self.orderbook = ob
+                    else:
+                        bids = data["bids"]
+                        asks = data["asks"]
+                        if not self.orderbook:
+                            return
+                        if bids:
+                            for price, quantity in bids.items():
+                                if quantity == 0:
+                                    del self.orderbook.bids[int(price)]
+                                else:
+                                    self.orderbook.bids[int(price)] = quantity
+                        if asks:
+                            for price, quantity in asks.items():
+                                if quantity == 0:
+                                    del self.orderbook.asks[int(price)]
+                                else:
+                                    self.orderbook.asks[int(price)] = quantity
+
+                elif t == 'balances':
+                    total_balance = 0
+                    try:
+                        cash_balance = float(data["cash"])
+                    except ValueError:
+                        print("ValueError cash_balance: {}".format(cash_balance))
+                    if cash_balance > 1:
+                        self.make_withdrawal(cash_balance, "Kollider Payout")
+                    total_balance += cash_balance
+                    if "isolated_margin" in data:
+                        isolated_margin = data["isolated_margin"].get(self.target_symbol)
+                        if isolated_margin is not None:
+                            total_balance += float(isolated_margin)
+
+                        order_margin = data["order_margin"].get(self.target_symbol)
+                        if order_margin is not None:
+                            total_balance += float(order_margin)
+                        self.wallet.update_kollider_balance(total_balance)
+                    else:
+                        print("Missing field isolated_margin in data for balances {}".format(data))
+
+                elif t == 'error':
+                    print("ERROR")
+                    print(data)
 
     def calc_sat_value(self, qty, price, contract):
         if contract.is_inverse_priced:
@@ -742,43 +768,45 @@ class HedgerEngine(KolliderWsClient):
         while not self.ws_is_open:
             pass
         print("Connected to websockets.")
+        if "cycle_speed" in settings:
+            cycle_speed = settings["cycle_speed"]
 
-        cycle_speed = settings["cycle_speed"]
+            self.set_params(**settings)
+            self.settings = settings
 
-        self.set_params(**settings)
-        self.settings = settings
+            self.update_node_info()
 
-        self.update_node_info()
+            cli_thread = threading.Thread(target=self.cli, daemon=False, args=())
+            cli_thread.start()
 
-        cli_thread = threading.Thread(target=self.cli, daemon=False, args=())
-        cli_thread.start()
+            while True:
+                if not self.has_kollider_creds():
+                    continue
 
-        while True:
-            if not self.has_kollider_creds():
-                continue
+                # Don't do anything if we haven't received the contracts.
+                if not self.received_tradable_symbols and not self.is_authenticated:
+                    continue
 
-            # Don't do anything if we haven't received the contracts.
-            if not self.received_tradable_symbols and not self.is_authenticated:
-                continue
+                # Don't do anything if we haven't received mark or index price.
+                if self.current_index_price == 0 or self.current_mark_price == 0:
+                    continue
 
-            # Don't do anything if we haven't received mark or index price.
-            if self.current_index_price == 0 or self.current_mark_price == 0:
-                continue
+                # Don't do anything if we have no ticker price.
+                if self.last_ticker.last_side is None:
+                    continue
 
-            # Don't do anything if we have no ticker price.
-            if self.last_ticker.last_side is None:
-                continue
+                self.update_wallet_data()
+                self.estimate_hedge_price()
 
-            self.update_wallet_data()
-            self.estimate_hedge_price()
+                self.update_average_funding_rates()
 
-            self.update_average_funding_rates()
+                # Getting current state.
+                state = self.build_target_state()
+                self.check_state(state)
+                # Printing the state.
+                # Converging to that state.
+                self.converge_state(state)
 
-            # Getting current state.
-            state = self.build_target_state()
-            self.check_state(state)
-            # Printing the state.
-            # Converging to that state.
-            self.converge_state(state)
-
-            sleep(cycle_speed)
+                sleep(cycle_speed)
+        else:
+            print("Missing setting cycle_speed")
