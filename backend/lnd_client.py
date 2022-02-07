@@ -9,7 +9,7 @@ from time import sleep
 os.environ["GRPC_SSL_CIPHER_SUITES"] = 'HIGH+ECDSA'
 
 class LndClient(object):
-	def __init__(self, node_url, macaroon_path, tls_path):
+	def __init__(self, node_url, macaroon_path, tls_path, logger):
 
 		cert = open(os.path.expanduser(tls_path), 'rb').read()
 		creds = grpc.ssl_channel_credentials(cert)
@@ -23,8 +23,14 @@ class LndClient(object):
 
 	def sub_invoices(self, callback):
 		request = ln.InvoiceSubscription()
-		for invoice in self.stub.SubscribeInvoices(request, metadata=[('macaroon', self.macaroon)]):
-			callback(invoice)
+		try:
+			for invoice in self.stub.SubscribeInvoices(request, metadata=[('macaroon', self.macaroon)]):
+				callback(invoice)
+		except Exception as err:
+			sleep(5)
+			print(err)
+			print("Trying to connect to invoices again.")
+			self.sub_invoices(callback)
 
 	def get_info(self):
 		return self.stub.GetInfo(ln.GetInfoRequest(), metadata=[('macaroon', self.macaroon)])

@@ -11,6 +11,7 @@ import requests
 from lnurl_auth import perform_lnurlauth
 import hashlib
 import zmq
+from utils import setup_custom_logger
 
 SOCKET_ADDRESS = "tcp://*:5556"
 SOCKET_PUB_ADDRESS = "tcp://*:5557"
@@ -41,21 +42,24 @@ def lnd_invoice_publisher(ln_client):
 		target=ln_client.sub_invoices, daemon=True, args=(on_invoice, ))
 	invoice_publish_thread.start()
 	while True:
-		res = ln_client.get_channel_balances()
-		response = {
-			"type": "getChannelBalances",
-			"data": {
-				"local": res.local_balance.sat,
-				"localMsat": res.local_balance.msat,
-				"remote": res.remote_balance.sat,
-				"remoteMsat": res.remote_balance.msat
+		try:
+			res = ln_client.get_channel_balances()
+			response = {
+				"type": "getChannelBalances",
+				"data": {
+					"local": res.local_balance.sat,
+					"localMsat": res.local_balance.msat,
+					"remote": res.remote_balance.sat,
+					"remoteMsat": res.remote_balance.msat
+				}
 			}
-		}
-		socket.send_multipart(["invoices".encode("utf-8"), json.dumps([response]).encode("utf8")])
-		sleep(3)
+			socket.send_multipart(["invoices".encode("utf-8"), json.dumps([response]).encode("utf8")])
+			sleep(3)
+		except Exception as e:
+			print("Error getting channel balances: {}".format(e))
 
-def lnd_node_server(lnd_client):
-	print("Started lnd node server")
+def lnd_node_server(lnd_client, logger):
+	logger.debug("Started LND node server.")
 	context = zmq.Context()
 	socket = context.socket(zmq.REP)
 	socket.bind(SOCKET_ADDRESS)
@@ -64,11 +68,13 @@ def lnd_node_server(lnd_client):
 		try:
 			message = socket.recv_json()
 		except Exception as e:
-			print(e)
+			logger.error("Error while receiving msg from zmq.")
 			continue
 		if message.get("action") is not None:
 			action = message.get("action")
 			data = message.get("data")
+			logger.debug("Action received: {}".format(action))
+			logger.debug("Data received: {}".format(data))
 			if action == "get_node_info":
 				res = lnd_client.get_info()
 				response = {
@@ -167,12 +173,10 @@ def lnd_node_server(lnd_client):
 					}
 					socket.send_json([response])
 				except Exception as e:
-					print(e)
+					logger.error("Error on lnurl_auth: {}".format(e))
 				continue
 			if action == "lnurl_auth_hedge":
-				print("penis")
 				response = requests.get("https://api.kollider.xyz/v1/auth/external/lnurl_auth")
-				print(response)
 				j = response.json()
 				decoded_url = lnurl.decode(j["lnurl_auth"])
 				res = lnd_client.sign_message(SEED_WORD)
@@ -190,7 +194,7 @@ def lnd_node_server(lnd_client):
 					}
 					socket.send_json([response])
 				except Exception as e:
-					print(e)
+					logger.error("Error on lnurl_auth_hedge: {}".format(e))
 				continue
 		sleep(0.5)
 

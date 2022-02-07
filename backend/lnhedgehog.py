@@ -88,7 +88,7 @@ class Wallet(object):
 
 
 class HedgerEngine(KolliderWsClient):
-    def __init__(self, lnd_client):
+    def __init__(self, lnd_client, logger):
         self.kollider_api_key = None
         self.kollider_api_secret = None
         self.kollider_api_passphrase = None
@@ -139,6 +139,7 @@ class HedgerEngine(KolliderWsClient):
         self.publisher.bind(SOCKET_PUB_ADDRESS)
 
         self.settings = {}
+        self.logger = logger
 
     def has_kollider_creds(self):
         return self.kollider_api_key and self.kollider_api_secret and self.kollider_api_passphrase
@@ -162,7 +163,6 @@ class HedgerEngine(KolliderWsClient):
         }
 
     def set_params(self, **args):
-        print(args)
         self.kollider_api_key = args["kollider"].get(
             "api_key") if args["kollider"].get("api_key") else None
         self.kollider_api_secret = args["kollider"].get(
@@ -218,11 +218,13 @@ class HedgerEngine(KolliderWsClient):
         msg = json.loads(msg)
         t = msg["type"]
         data = msg["data"]
+        # self.logger.debug("Received Kollider msg type: {}".format(t))
+        # self.logger.debug("Received Kollider data: {}".format(data))
         if t == 'authenticate':
             if data["message"] == "success":
                 self.is_authenticated = True
             else:
-                print("Auth Unsuccessful: {}".format(data))
+                self.logger.info("Kollider auth Unsuccessful: {}".format(data))
                 self.is_authenticated = False
                 self.__reset()
 
@@ -233,13 +235,12 @@ class HedgerEngine(KolliderWsClient):
             self.current_mark_price = float(data["price"])
 
         elif t == 'positions':
-            print("Received positions.")
             positions = data["positions"]
             for key, value in positions.items():
                 self.positions[key] = Position(msg=value)
 
         elif t == 'open_orders':
-            print("Received open orders")
+            self.logger.debug("Received open orders.")
             open_orders = data["open_orders"]
             for symbol, open_orders in open_orders.items():
                 for open_order in open_orders:
@@ -289,12 +290,9 @@ class HedgerEngine(KolliderWsClient):
             self.last_ticker = Ticker(msg=data)
 
         elif t == 'order_invoice':
-            print("Received Pay to Trade invoice for: {}".format(
-                data["margin"]))
             res = self.lnd_client.send_payment(data["invoice"])
 
         elif t == 'settlement_request':
-            print("Received settlement Request")
             amount = data["amount"]
             self.make_withdrawal(amount, "Kollider Trade Settlement")
 
@@ -344,8 +342,7 @@ class HedgerEngine(KolliderWsClient):
             self.wallet.update_kollider_balance(total_balance)
 
         elif t == 'error':
-            print("ERROR")
-            print(data)
+            self.logger.error("Got error: {}".format(msg))
 
     def calc_sat_value(self, qty, price, contract):
         if contract.is_inverse_priced:
@@ -474,7 +471,7 @@ class HedgerEngine(KolliderWsClient):
             qty_of_contracts = floor(value_target / value_per_contract)
             return qty_of_contracts
         except Exception as e:
-            print(e)
+            self.logger.exception("Got exception on calc_number_of_contracts_required: {}".format(e))
 
     def get_open_orders(self):
         return self.open_orders.get(self.target_symbol)
@@ -494,10 +491,13 @@ class HedgerEngine(KolliderWsClient):
     def update_average_funding_rates(self):
         rest_client = KolliderRestClient(
             "http://api.staging.kollider.internal/v1/")
-        average_funding_rates = rest_client.get_average_funding_rates()
-        for funding_rate in average_funding_rates["data"]:
-            self.average_hourly_funding_rates[funding_rate["symbol"]
-                                              ] = funding_rate["mean_funding_rate"]
+        try:
+            average_funding_rates = rest_client.get_average_funding_rates()
+            for funding_rate in average_funding_rates["data"]:
+                self.average_hourly_funding_rates[funding_rate["symbol"]
+                                                ] = funding_rate["mean_funding_rate"]
+        except Exception as err:
+            self.logger.exception("Got exception on update_average_funding_rate: {}".format(err))
 
     def build_target_state(self):
         state = HedgerState()
@@ -505,7 +505,7 @@ class HedgerEngine(KolliderWsClient):
         total_value = self.wallet.total_ln_balance()
         # hedge_value = (target_value * self.hedge_proportion)
         if total_value < self.hedge_value:
-            print("error can't hedge more than you have.")
+            self.logger.info("Tried to hedge more than you have.")
             return
         hedge_value = self.hedge_value
 
@@ -644,7 +644,7 @@ class HedgerEngine(KolliderWsClient):
                 "num_active_channels": node_info.num_active_channels,
             }
         except Exception as e:
-            print(e)
+            self.logger.exception("Got exception on update_node_info: {}".format(e))
 
     def update_wallet_data(self):
         channel_balances = self.lnd_client.get_channel_balances()
@@ -653,7 +653,7 @@ class HedgerEngine(KolliderWsClient):
         self.wallet.update_onchain_balance(onchain_balances.total_balance)
 
     def cli(self):
-        print("Hedger Cli")
+        self.logger.info("Starting ln-hedghog CLI.")
         context = zmq.Context()
         socket = context.socket(zmq.REP)
         socket.bind(SOCKET_ADDRESS)
@@ -662,7 +662,7 @@ class HedgerEngine(KolliderWsClient):
             try:
                 message = socket.recv_json()
             except Exception as e:
-                print(e)
+                self.logger.exception("Error while receiving msg from zmq.")
                 continue
             if message.get("action") is not None:
                 action = message.get("action")
@@ -737,11 +737,10 @@ class HedgerEngine(KolliderWsClient):
         sleep(0.5)
 
     def start(self, settings):
-        print("Connecting to Kollider websockets..")
-        pprint(settings)
+        self.logger.debug("Connecting to Kollider websockets..")
         while not self.ws_is_open:
             pass
-        print("Connected to websockets.")
+        self.logger.debug("Conneced to websockets.")
 
         cycle_speed = settings["cycle_speed"]
 
@@ -752,6 +751,8 @@ class HedgerEngine(KolliderWsClient):
 
         cli_thread = threading.Thread(target=self.cli, daemon=False, args=())
         cli_thread.start()
+
+        self.logger.info("Starting ln hedgehog engine.")
 
         while True:
             if not self.has_kollider_creds():
