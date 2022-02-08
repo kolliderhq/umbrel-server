@@ -25,7 +25,7 @@ def setup_custom_logger(name, log_level="DEBUG"):
 	if not log_level:
 		log_level = "DEBUG"
 
-	filename = name + ".log"
+	filename = "logs/" + name + ".log"
 
 	logger = logging.getLogger(name)
 	print(filename)
