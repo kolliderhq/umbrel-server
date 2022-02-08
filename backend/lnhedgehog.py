@@ -773,7 +773,7 @@ class HedgerEngine(KolliderWsClient):
             self.update_wallet_data()
             self.estimate_hedge_price()
 
-            self.update_average_funding_rates()
+            # self.update_average_funding_rates()
 
             # Getting current state.
             state = self.build_target_state()

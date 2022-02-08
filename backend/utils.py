@@ -1,6 +1,7 @@
 from ecdsa import SECP256k1, SigningKey
 import hashlib
 import logging
+import os
 
 SATOSHI_MULTIPLIER = 100000000
 
@@ -25,7 +26,10 @@ def setup_custom_logger(name, log_level="DEBUG"):
 	if not log_level:
 		log_level = "DEBUG"
 
-	filename = "logs/" + name + ".log"
+	filename = name + ".log"
+
+	if os.path.isdir("logs/"):
+		filename = "logs/" + filename
 
 	logger = logging.getLogger(name)
 	print(filename)

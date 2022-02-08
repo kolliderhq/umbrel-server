@@ -36,7 +36,7 @@ def main():
     with open('config.json') as a:
         settings = json.load(a)
 
-    logger = setup_custom_logger("lnhedhog", settings.get("log_level"))
+    logger = setup_custom_logger("lnhedgehog", settings.get("log_level"))
 
     kollider_api_key = settings["kollider"]["api_key"]
     kollider_url = settings["kollider"]["ws_url"]
