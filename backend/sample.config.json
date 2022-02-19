@@ -1,10 +1,4 @@
 {
-	"kollider": {
-		"api_key": "",
-		"api_secret": "",
-		"api_passphrase": "",
-		"ws_url": "wss://api.kollider.xyz/v1/ws/"
-	},
 	"lnd": {
 		"node_url": "localhost:10009",
 		"admin_macaroon_path": "admin.macaroon",

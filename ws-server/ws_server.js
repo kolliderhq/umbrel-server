@@ -19,15 +19,11 @@ let ZMQ_SUB_ADDRESS = "";
 let ZMQ_HEDGER_ADDRESS = "";
 
 if (process.env.DEV) {
-  ZMQ_ADDRESS = "tcp://127.0.0.1:5556";
+  ZMQ_PUB_ADDRESS = "tcp://*:5556";
   ZMQ_SUB_ADDRESS = "tcp://127.0.0.1:5557";
-  ZMQ_HEDGER_ADDRESS = "tcp://127.0.0.1:5558";
-  ZMQ_HEDGER_SUB_ADDRESS = "tcp://127.0.0.1:5559";
 } else {
-  ZMQ_ADDRESS = process.env.KOLLIDER_ZMQ_ADDRESS;
+  ZMQ_PUB_ADDRESS = process.env.KOLLIDER_ZMQ_PUB_ADDRESS;
   ZMQ_SUB_ADDRESS = process.env.KOLLIDER_ZMQ_SUB_ADDRESS;
-  ZMQ_HEDGER_ADDRESS = process.env.KOLLIDER_ZMQ_HEDGER_ADDRESS;
-  ZMQ_HEDGER_SUB_ADDRESS = process.env.KOLLIDER_ZMQ_HEDGER_SUB_ADDRESS;
 }
 
 const createResponse = (data, type) => {
@@ -38,42 +34,15 @@ const createResponse = (data, type) => {
   return JSON.stringify(resp);
 };
 
-async function zmqSubscriber(onMessage, isAuthenticated) {
+async function zmqInvoiceSubscriber(onMessage) {
   const subSocket = new zmq.Subscriber();
 
   await subSocket.connect(ZMQ_SUB_ADDRESS);
-  subSocket.subscribe("invoices");
+  subSocket.subscribe("lnd_server_pub_stream");
 
   for await (const [topic, msg] of subSocket) {
     onMessage(msg);
   }
-}
-
-async function zmqHedgerSubscriber(onMessage, isAuthenticated) {
-  const subSocket = new zmq.Subscriber();
-
-  await subSocket.connect(ZMQ_HEDGER_SUB_ADDRESS);
-  subSocket.subscribe("hedger_stream");
-
-  for await (const [topic, msg] of subSocket) {
-    onMessage(msg);
-  }
-}
-
-async function zmqLndRequest(msg, onReply) {
-  const socket = new zmq.Request();
-  socket.connect(ZMQ_ADDRESS);
-  await socket.send(msg);
-  const [result] = await socket.receive();
-  onReply(result);
-}
-
-async function zmqHedgerRequest(msg, onReply) {
-  const socket = new zmq.Request();
-  socket.connect(ZMQ_HEDGER_ADDRESS);
-  await socket.send(msg);
-  const [result] = await socket.receive();
-  onReply(result);
 }
 
 const wss = new ws.WebSocketServer({
@@ -81,126 +50,106 @@ const wss = new ws.WebSocketServer({
   perMessageDeflate: false,
 });
 
-const onAuth = () => {};
+const pubSocket = new zmq.Publisher();
 
-wss.on("connection", function connection(ws) {
-  let isAuthenticated = false;
-  const onZmqReply = (msg) => {
-    let jstring = msg.toString();
-    jstring = JSON.parse(jstring);
-    jstring.map((m) => {
-      ws.send(JSON.stringify(m));
-    });
-  };
+pubSocket.bind(ZMQ_PUB_ADDRESS).then(_ => {
+  const sendToBack = (msg) => {
+    pubSocket.send(["lnd_server_sub_stream", msg])
+  }
+  wss.on("connection", function connection(ws) {
+    let isAuthenticated = false;
+    const onZmqReply = (msg) => {
+      let jstring = msg.toString();
+      jstring = JSON.parse(jstring);
+      jstring.map((m) => {
+        ws.send(JSON.stringify(m));
+      });
+    };
 
-  ws.on("message", function message(data) {
-    let d = "";
-    try {
-      d = JSON.parse(data);
-    } catch (err) {
-      return null;
-    }
-    if (d.type === AUTHENTICATION) {
-      let env_password = process.env.APP_PASSWORD;
-      if (d.password === env_password && !isAuthenticated) {
-        const data = {
-          status: "success",
-        };
-        isAuthenticated = true;
-        ws.send(createResponse(data, "authentication"));
-        zmqSubscriber(onZmqReply);
-        zmqHedgerSubscriber(onZmqReply);
+    ws.on("message", function message(data) {
+      let d = "";
+      try {
+        d = JSON.parse(data);
+        console.log(d)
+      } catch (err) {
+        return null;
+      }
+      if (d.type === AUTHENTICATION) {
+        let env_password = process.env.APP_PASSWORD;
+        if (d.password === env_password && !isAuthenticated) {
+          const data = {
+            status: "success",
+          };
+          isAuthenticated = true;
+          ws.send(createResponse(data, "authentication"));
+          zmqInvoiceSubscriber(onZmqReply);
+          return;
+        } else {
+          const data = {
+            msg: "wrong password",
+          };
+          ws.send(createResponse(data, "authentication"));
+        }
+      }
+
+      if (!isAuthenticated) {
+        const response = createResponse({ msg: "Please Authenticate." }, "error");
+        ws.send(response.toString());
         return;
-      } else {
-        const data = {
-          msg: "wrong password",
-        };
-        ws.send(createResponse(data, "authentication"));
       }
-    }
 
-    if (!isAuthenticated) {
-      const response = createResponse({ msg: "Please Authenticate." }, "error");
-      ws.send(response.toString());
-      return;
-    }
-
-    if (d.type === CREATE_INVOICE) {
-      let amount = d.amount;
-      if (!amount) {
-        ws.send(createResponse({ msg: "Amount not specified" }, "error"));
-      } else {
+      if (d.type === CREATE_INVOICE) {
+        let amount = d.amount;
+        if (!amount) {
+          ws.send(createResponse({ msg: "Amount not specified" }, "error"));
+        } else {
+          const msg = {
+            action: "create_invoice",
+            data: {
+              amount: d.amount,
+            },
+          };
+          sendToBack(JSON.stringify(msg));
+        }
+      } else if (d.type === SEND_PAYMENT) {
+        if (!d.paymentRequest) {
+          const data = {
+            msg: "Payment request not provided.",
+          };
+          ws.send(createResponse(data, "error"));
+        } else {
+          const msg = {
+            action: "send_payment",
+            data: {
+              payment_request: d.paymentRequest,
+            },
+          };
+          sendToBack(JSON.stringify(msg));
+        }
+      } else if (d.type === GET_NODE_INFO) {
         const msg = {
-          action: "create_invoice",
-          data: {
-            amount: d.amount,
-          },
+          action: "get_node_info",
         };
-        zmqLndRequest(JSON.stringify(msg), onZmqReply);
-      }
-    } else if (d.type === SEND_PAYMENT) {
-      if (!d.paymentRequest) {
-        const data = {
-          msg: "Payment request not provided.",
-        };
-        ws.send(createResponse(data, "error"));
-      } else {
+        sendToBack(JSON.stringify(msg));
+      } else if (d.type === GET_CHANNEL_BALANCES) {
         const msg = {
-          action: "send_payment",
-          data: {
-            payment_request: d.paymentRequest,
-          },
+          action: "get_channel_balances",
         };
-        zmqLndRequest(JSON.stringify(msg), onZmqReply);
+        sendToBack(JSON.stringify(msg));
+      } else if (d.type === GET_WALLET_BALANCES) {
+        const msg = {
+          action: "get_wallet_balances",
+        };
+        sendToBack(JSON.stringify(msg));
+      } else if (d.type === LNURL_AUTH) {
+        const msg = {
+          action: "lnurl_auth",
+          data: { lnurl: d.lnurl },
+        };
+        sendToBack(JSON.stringify(msg));
+      } else {
+        ws.send(createResponse({ msg: "action not available" }, "error"));
       }
-    } else if (d.type === GET_NODE_INFO) {
-      const msg = {
-        action: "get_node_info",
-      };
-      zmqLndRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === GET_CHANNEL_BALANCES) {
-      const msg = {
-        action: "get_channel_balances",
-      };
-      zmqLndRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === GET_WALLET_BALANCES) {
-      const msg = {
-        action: "get_wallet_balances",
-      };
-      zmqLndRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === LNURL_AUTH) {
-      const msg = {
-        action: "lnurl_auth",
-        data: { lnurl: d.lnurl },
-      };
-      zmqLndRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === GET_HEDGE_STATE) {
-      const msg = {
-        action: "get_hedge_state",
-      };
-      zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === GET_WALLET_STATE) {
-      const msg = {
-        action: "get_wallet_state",
-      };
-      zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === CREATE_NEW_HEDGE) {
-      const msg = {
-        action: "create_new_hedge",
-        data: {
-          amount: d.amountInSats,
-          is_staged: d.isStaged,
-        },
-      };
-      zmqHedgerRequest(JSON.stringify(msg), onZmqReply);
-    } else if (d.type === LNURL_AUTH_HEDGE) {
-      const msg = {
-        action: "lnurl_auth_hedge",
-        data: {},
-      };
-      zmqLndRequest(JSON.stringify(msg), onZmqReply);
-    } else {
-      ws.send(createResponse({ msg: "action not available" }, "error"));
-    }
+    });
   });
-});
+})

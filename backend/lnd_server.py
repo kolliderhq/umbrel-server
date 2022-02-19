@@ -13,15 +13,19 @@ import hashlib
 import zmq
 from utils import setup_custom_logger
 
-SOCKET_ADDRESS = "tcp://*:5556"
+SOCKET_SUB_ADDRESS = "tcp://127.0.0.1:5556"
+if os.environ.get('LND_ZMQ_SUB_ADDRESS'):
+	SOCKET_SUB_ADDRESS = os.environ.get('LND_ZMQ_SUB_ADDRESS')
+
 SOCKET_PUB_ADDRESS = "tcp://*:5557"
 
 SEED_WORD = hashlib.sha256("cheers to you until all enternity and here is my entry ser.".encode("utf-8")).digest()
 
+CONTEXT = zmq.Context()
+SOCKET = CONTEXT.socket(zmq.PUB)
+SOCKET.bind(SOCKET_PUB_ADDRESS)
+
 def lnd_invoice_publisher(ln_client):
-	context = zmq.Context()
-	socket = context.socket(zmq.PUB)
-	socket.bind(SOCKET_PUB_ADDRESS)
 	def on_invoice(invoice):
 		data = {
 			"payment_request": invoice.payment_request,
@@ -36,7 +40,7 @@ def lnd_invoice_publisher(ln_client):
 					"amount": data["value"]
 				}
 			}
-			socket.send_multipart(["invoices".encode("utf-8"), json.dumps([response]).encode("utf8")])
+			SOCKET.send_multipart(["lnd_server_pub_stream".encode("utf-8"), json.dumps([response]).encode("utf8")])
 	# ln_client.sub_invoices(on_invoice)
 	invoice_publish_thread = threading.Thread(
 		target=ln_client.sub_invoices, daemon=True, args=(on_invoice, ))
@@ -53,20 +57,25 @@ def lnd_invoice_publisher(ln_client):
 					"remoteMsat": res.remote_balance.msat
 				}
 			}
-			socket.send_multipart(["invoices".encode("utf-8"), json.dumps([response]).encode("utf8")])
+			SOCKET.send_multipart(["lnd_server_pub_stream".encode("utf-8"), json.dumps([response]).encode("utf8")])
 			sleep(3)
 		except Exception as e:
 			print("Error getting channel balances: {}".format(e))
 
+def publish_msg(msg):
+	SOCKET.send_multipart(["lnd_server_pub_stream".encode("utf-8"), json.dumps([msg]).encode("utf-8")]) 
+
 def lnd_node_server(lnd_client, logger):
 	logger.debug("Started LND node server.")
 	context = zmq.Context()
-	socket = context.socket(zmq.REP)
-	socket.bind(SOCKET_ADDRESS)
+	socket = context.socket(zmq.SUB)
+	socket.connect(SOCKET_SUB_ADDRESS)
+	socket.setsockopt(zmq.SUBSCRIBE, b'lnd_server_sub_stream')
 	while True:
 		message = ""
 		try:
 			message = socket.recv_json()
+			print(message)
 		except Exception as e:
 			logger.error("Error while receiving msg from zmq.")
 			continue
@@ -93,7 +102,7 @@ def lnd_node_server(lnd_client, logger):
 						"synced_to_graph": res.synced_to_graph
 					}
 				}
-				socket.send_json([response])
+				publish_msg(response)
 				continue
 			if action == "create_invoice":
 				message = "kollider"
@@ -104,7 +113,7 @@ def lnd_node_server(lnd_client, logger):
 						"paymentRequest": res.payment_request
 					}
 				}
-				socket.send_json([response])
+				publish_msg(response)
 				continue
 			if action == "send_payment":
 				resp = []
@@ -133,7 +142,7 @@ def lnd_node_server(lnd_client, logger):
 					resp.append(response)
 				except Exception as e:
 					resp.append({"type": "error", "data": {"msg": "Failed sending payment."}})
-				socket.send_json(resp)
+				publish_msg(resp)
 				continue
 			if action == "get_channel_balances":
 				res = lnd_client.get_channel_balances()
@@ -146,7 +155,7 @@ def lnd_node_server(lnd_client, logger):
 						"remoteMsat": res.remote_balance.msat
 					}
 				}
-				socket.send_json([response])
+				publish_msg(response)
 				continue
 			if action == "get_wallet_balances":
 				res = lnd_client.get_onchain_balance()
@@ -157,9 +166,10 @@ def lnd_node_server(lnd_client, logger):
 						"total_balance": res.total_balance,
 					}
 				}
-				socket.send_json([response])
+				publish_msg(response)
 				continue
 			if action == "lnurl_auth":
+				print("Authing")
 				decoded_url = lnurl.decode(data["lnurl"])
 				res = lnd_client.sign_message(SEED_WORD)
 				lnurl_auth_signature = perform_lnurlauth(res.signature, decoded_url)
@@ -171,7 +181,7 @@ def lnd_node_server(lnd_client, logger):
 							"status": "success"
 						}
 					}
-					socket.send_json([response])
+					publish_msg(response)
 				except Exception as e:
 					logger.error("Error on lnurl_auth: {}".format(e))
 				continue
@@ -192,7 +202,7 @@ def lnd_node_server(lnd_client, logger):
 							"status": "success"
 						}
 					}
-					socket.send_json([response])
+					publish_msg(response)
 				except Exception as e:
 					logger.error("Error on lnurl_auth_hedge: {}".format(e))
 				continue
