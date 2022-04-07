@@ -116,21 +116,22 @@ def lnd_node_server(lnd_client, logger):
 				publish_msg(response)
 				continue
 			if action == "send_payment":
-				resp = []
+				resp = {}
 				try:
 					res = lnd_client.send_payment(data["payment_request"])
-					response = {
+					resp = {
 						"type": "sendPayment",
 						"data": {
 							"status": "success",
 						}
 					}
-					resp.append(response)
 				except Exception as err:
-					resp.append({"type": "error", "data": {"msg": "Failed sending payment."}})
+					resp = {"type": "error", "data": {"msg": "Failed sending payment."}}
+				publish_msg(resp)
+				resp = {}
 				try:
 					res = lnd_client.get_channel_balances()
-					response = {
+					resp = {
 						"type": "getChannelBalances",
 						"data": {
 							"local": res.local_balance.sat,
@@ -139,9 +140,8 @@ def lnd_node_server(lnd_client, logger):
 							"remoteMsat": res.remote_balance.msat
 						}
 					}
-					resp.append(response)
 				except Exception as e:
-					resp.append({"type": "error", "data": {"msg": "Failed sending payment."}})
+					resp = {"type": "error", "data": {"msg": "Failed sending payment."}}
 				publish_msg(resp)
 				continue
 			if action == "get_channel_balances":
