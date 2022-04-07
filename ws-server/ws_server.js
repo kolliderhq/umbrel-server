@@ -121,6 +121,7 @@ pubSocket.bind(ZMQ_PUB_ADDRESS).then(_ => {
           const msg = {
             action: "send_payment",
             data: {
+              status: "success",
               payment_request: d.paymentRequest,
             },
           };
