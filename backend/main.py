@@ -18,12 +18,10 @@ import lnurl
 from lnurl.types import Url
 from urllib.parse import urlparse, parse_qs
 import requests
-from lnurl_auth import perform_lnurlauth
 import hashlib
 from lnd_server import lnd_node_server, lnd_invoice_publisher
+from liq_protection import liq_protection
 from utils import setup_custom_logger
-
-import zmq
 
 class ReplaceClearnetUrl(Url):
     allowed_schemes = {"http", "https"}
@@ -56,6 +54,10 @@ def main():
         target=lnd_invoice_publisher, daemon=True, args=(lnd_client, ))
     lnd_publisher_thread.start()
 
+    liq_protection_thread = threading.Thread(
+        target=liq_protection, daemon=True, args=(lnd_client, logger))
+    liq_protection_thread.start()
+
     while True:
         if not lnd_node_server_thread.is_alive():
             logger.error("lnd_node_server_thread is dead. Trying to restart.")
@@ -68,6 +70,12 @@ def main():
             lnd_publisher_thread = threading.Thread(
                 target=lnd_invoice_publisher, daemon=True, args=(lnd_client, ))
             lnd_publisher_thread.start()
+
+        if not liq_protection_thread.is_alive():
+            logger.error("liquidation_protection_thread is dead. Trying to restart.")
+            liq_protection_thread = threading.Thread(
+                target=liq_protection, daemon=True, args=(lnd_client, logger))
+            liq_protection_thread.start()
 
 if __name__ in "__main__":
     main()
