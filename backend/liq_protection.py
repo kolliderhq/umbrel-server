@@ -42,6 +42,7 @@ def liq_protection(ln_client, logger):
         for key in products_parsed.keys():
             product_ids.append(key)
     while True:
+        wallet_bal = rest.get_wallet_balances()
         for key in product_ids:
             rest_ticker = rest.get_ticker(key)
             if rest_ticker is not None:
@@ -65,6 +66,10 @@ def liq_protection(ln_client, logger):
                             amount /= 10
                             if percent_diff <= 0.02:
                                 # add_margin
+                                if int(float(wallet_bal['cash'])) < amount:
+                                    diff = amount - int(float(wallet_bal['cash']))
+                                    deposit_res = rest.make_deposit(diff)
+                                    lnd_client.send_payment(deposit_res['payment_request'])
                                 logger.debug("Adding margin for position (%s) %d sats", key, amount)
                                 resp_parsed = rest.change_margin(action="Add", symbol=key, amount=amount)
                                 logger.debug("Add margin response: %s", resp_parsed)
@@ -80,6 +85,10 @@ def liq_protection(ln_client, logger):
                             amount /= 10
                             if percent_diff <= 0.02:
                                 # add_margin
+                                if int(float(wallet_bal['cash'])) < amount:
+                                    diff = amount - int(float(wallet_bal['cash']))
+                                    deposit_res = rest.make_deposit(diff)
+                                    lnd_client.send_payment(deposit_res['payment_request'])
                                 logger.debug("Adding margin for position (%s) %d sats", key, amount)
                                 resp_parsed = rest.change_margin(action="Add", symbol=key, amount=amount)
                                 logger.debug("Add margin response: %s", resp_parsed)
