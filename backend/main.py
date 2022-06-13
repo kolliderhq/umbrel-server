@@ -73,6 +73,7 @@ def main():
 
         if not liq_protection_thread.is_alive():
             logger.error("liquidation_protection_thread is dead. Trying to restart.")
+            lnd_client = LndClient(node_url, macaroon_path, tls_path, logger)
             liq_protection_thread = threading.Thread(
                 target=liq_protection, daemon=True, args=(lnd_client, logger))
             liq_protection_thread.start()
