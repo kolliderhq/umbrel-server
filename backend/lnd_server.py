@@ -77,7 +77,8 @@ def lnd_node_server(lnd_client, logger):
 			message = socket.recv_json()
 			print(message)
 		except Exception as e:
-			logger.error("Error while receiving msg from zmq.")
+			logger.error("Error while receiving msg from zmq: {}.".format(e))
+			logger.error("Message: {}".format(message))
 			continue
 		if message.get("action") is not None:
 			action = message.get("action")

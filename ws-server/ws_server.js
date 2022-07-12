@@ -57,7 +57,7 @@ pubSocket.bind(ZMQ_PUB_ADDRESS).then(_ => {
     pubSocket.send(["lnd_server_sub_stream", msg])
   }
   wss.on("connection", function connection(ws) {
-    let isAuthenticated = false;
+    let isSubscribed = false;
     const onZmqReply = (msg) => {
       let jstring = msg.toString();
       jstring = JSON.parse(jstring);
@@ -74,30 +74,10 @@ pubSocket.bind(ZMQ_PUB_ADDRESS).then(_ => {
       } catch (err) {
         return null;
       }
-      if (d.type === AUTHENTICATION) {
-        let env_password = process.env.APP_PASSWORD;
-        if (d.password === env_password && !isAuthenticated) {
-          const data = {
-            status: "success",
-          };
-          isAuthenticated = true;
-          ws.send(createResponse(data, "authentication"));
-          zmqInvoiceSubscriber(onZmqReply);
-          return;
-        } else {
-          const data = {
-            msg: "wrong password",
-          };
-          ws.send(createResponse(data, "authentication"));
-        }
+      if (!isSubscribed) {
+        isSubscribed = true;
+        zmqInvoiceSubscriber(onZmqReply);
       }
-
-      if (!isAuthenticated) {
-        const response = createResponse({ msg: "Please Authenticate." }, "error");
-        ws.send(response.toString());
-        return;
-      }
-
       if (d.type === CREATE_INVOICE) {
         let amount = d.amount;
         if (!amount) {
