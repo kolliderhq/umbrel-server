@@ -18,7 +18,7 @@ idna==3.2
 importlib-metadata==4.10.0
 itsdangerous==2.0.1
 Jinja2==3.0.3
--e git+https://git@github.com/kolliderhq/kollider-api-client.git@ae815684e4e6339df1922ecec0adfff27596879b#egg=kollider_api_client
+-e git+https://git@github.com/kolliderhq/kollider-api-client.git@2855aee3c86a67e366a363a1900cd8430614f760#egg=kollider_api_client
 lnurl==0.3.6
 MarkupSafe==2.0.1
 persistent==4.7.0
